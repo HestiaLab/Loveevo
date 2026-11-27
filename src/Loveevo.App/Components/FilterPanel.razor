@@ -1,0 +1,28 @@
+@inject TimelineFilterState Filters
+@implements IDisposable
+
+<div class="lv-tool-panel">
+    <header class="lv-panel-heading"><div><span class="lv-eyebrow">缩小范围</span><h2>筛选</h2></div><button type="button" class="lv-button ghost small" @onclick="Filters.Clear">重置</button></header>
+    <label class="lv-field"><span>阶段</span><select value="@Filters.StageId" @onchange="OnStageChanged"><option value="">全部阶段</option>@foreach (var stage in State.Data.Stages.OrderBy(item => item.SortOrder)){<option value="@stage.Id">@stage.Name</option>}</select></label>
+    <div class="lv-field-row">
+        <label class="lv-field"><span>开始日期</span><input type="date" value="@Filters.From?.ToString("yyyy-MM-dd")" @onchange="OnFromChanged" /></label>
+        <label class="lv-field"><span>结束日期</span><input type="date" value="@Filters.To?.ToString("yyyy-MM-dd")" @onchange="OnToChanged" /></label>
+    </div>
+    <fieldset class="lv-filter-moods"><legend>心情</legend><div class="lv-mood-picker">@foreach (var mood in Moods){ var selected = Filters.Moods.Contains(mood); <button type="button" class="lv-mood-chip @(selected ? "selected" : "")" aria-pressed="@selected" @onclick="() => ToggleMood(mood)">@mood</button> }</div></fieldset>
+    <fieldset class="lv-filter-moods"><legend>排序</legend><div class="lv-segmented"><button type="button" class="@(Filters.Sort == "ascending" ? "active" : "")" @onclick='() => SetSort("ascending")'>从早到晚</button><button type="button" class="@(Filters.Sort == "descending" ? "active" : "")" @onclick='() => SetSort("descending")'>从晚到早</button></div></fieldset>
+</div>
+
+@code {
+    [Inject] private LoveevoState State { get; set; } = null!;
+    private static readonly string[] Moods = ["甜蜜", "安心", "心动", "紧张", "平淡", "幸福"];
+
+    protected override void OnInitialized() => State.Changed += OnStateChanged;
+    public void Dispose() => State.Changed -= OnStateChanged;
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+
+    private void OnStageChanged(ChangeEventArgs args) { Filters.StageId = args.Value?.ToString(); if (string.IsNullOrEmpty(Filters.StageId)) Filters.StageId = null; Filters.NotifyChanged(); }
+    private void OnFromChanged(ChangeEventArgs args) { Filters.From = DateOnly.TryParse(args.Value?.ToString(), out var value) ? value : null; Filters.NotifyChanged(); }
+    private void OnToChanged(ChangeEventArgs args) { Filters.To = DateOnly.TryParse(args.Value?.ToString(), out var value) ? value : null; Filters.NotifyChanged(); }
+    private void ToggleMood(string mood) { if (!Filters.Moods.Add(mood)) Filters.Moods.Remove(mood); Filters.NotifyChanged(); }
+    private void SetSort(string sort) { Filters.Sort = sort; Filters.NotifyChanged(); }
+}

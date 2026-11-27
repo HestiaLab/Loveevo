@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="Loveevo，一个只保存在本机浏览器里的私密恋爱关系纪念册。" />
+    <meta name="theme-color" content="#c85f82" />
+    <title>Loveevo · 我们的关系纪念册</title>
+    <base href="/" />
+    <link rel="preload" id="webassembly" />
+    <link rel="stylesheet" href="_content/Atlas.Blazor/atlas-v2/atlas.css" />
+    <link rel="stylesheet" href="_content/Atlas.Blazor/atlas-v2/themes/ide.css" />
+    <link rel="stylesheet" href="css/app.css" />
+    <link href="manifest.webmanifest" rel="manifest" />
+    <link rel="apple-touch-icon" sizes="512x512" href="icons/icon-512.png" />
+    <link rel="apple-touch-icon" sizes="192x192" href="icons/icon-192.png" />
+    <script type="importmap"></script>
+</head>
+
+<body>
+    <div id="app">
+        <div class="lv-loading">
+            <div class="lv-loading-mark">
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z" /></svg>
+            </div>
+            <p>正在打开你们的故事…</p>
+        </div>
+    </div>
+
+    <div id="blazor-error-ui">
+        应用遇到了问题。<a href="." class="reload">重新加载</a><span class="dismiss">×</span>
+    </div>
+
+    <noscript>Loveevo 需要启用 JavaScript 才能运行。</noscript>
+    <script src="_framework/blazor.webassembly#[.{fingerprint}].js"></script>
+</body>
+
+</html>

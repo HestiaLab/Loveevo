@@ -1,0 +1,311 @@
+@using Loveevo.Core.Models
+@using Loveevo.Core.Validation
+@using Loveevo.App.Services
+@using Microsoft.AspNetCore.Components.Forms
+@implements IDisposable
+@inject LoveevoState State
+@inject ImageService Images
+@inject EditorDirtyRegistry DirtyRegistry
+@inject BeforeUnloadGuard BeforeUnload
+@inject DialogService DialogService
+
+<EditForm Model="@_item" OnValidSubmit="SaveAsync" FormName="@("event-editor-" + WorkspaceItemId)">
+    <DataAnnotationsValidator />
+    @if (State.Data.Preferences.PrivacyMode)
+    {
+        <div class="lv-empty-state">
+            <Icon Name="lock" Size="34" />
+            <h1>隐私模式已开启</h1>
+            <p>编辑内容已隐藏。退出隐私模式后才能查看和修改这条回忆。</p>
+            <button type="button" class="lv-button primary" @onclick="ExitPrivacyAsync">退出隐私模式</button>
+        </div>
+    }
+    else
+    {
+    <div class="lv-editor">
+        <header class="lv-editor-header">
+            <div>
+                <span class="lv-eyebrow">@(_isNew ? "新的回忆" : "编辑回忆")</span>
+                <h1>@(_isNew ? "记录这一刻" : _item.Title)</h1>
+            </div>
+            <div class="lv-editor-header-actions">
+                <button type="button" class="lv-button ghost" @onclick="CloseAsync"><Icon Name="close" Size="17" /> 关闭</button>
+                <button type="submit" class="lv-button primary" disabled="@_saving"><Icon Name="check" Size="17" /> @(_saving ? "保存中…" : "保存")</button>
+            </div>
+        </header>
+
+        @if (_errors.Count > 0)
+        {
+            <div class="lv-alert error" role="alert">
+                @foreach (var error in _errors)
+                {
+                    <div>@error.Message</div>
+                }
+            </div>
+        }
+        @if (!string.IsNullOrWhiteSpace(_status))
+        {
+            <div class="lv-alert success" role="status">@_status</div>
+        }
+
+        <div class="lv-editor-grid">
+            <section class="lv-form-card">
+                <h2>基本信息</h2>
+                <label class="lv-field">
+                    <span>事件标题 <em>*</em></span>
+                    <input @bind="_item.Title" @bind:event="oninput" @bind:after="MarkDirty" maxlength="80" placeholder="例如：第一次牵手" />
+                </label>
+                <div class="lv-field-row">
+                    <label class="lv-field">
+                        <span>发生日期 <em>*</em></span>
+                        <input type="date" @bind="_item.OccurredOn" @bind:after="MarkDirty" max="@State.Today.ToString("yyyy-MM-dd")" />
+                    </label>
+                    <label class="lv-field">
+                        <span>所属阶段</span>
+                        <select @bind="_item.StageId" @bind:after="MarkDirty">
+                            @foreach (var stage in State.Data.Stages.OrderBy(item => item.SortOrder))
+                            {
+                                <option value="@stage.Id">@stage.Name</option>
+                            }
+                        </select>
+                    </label>
+                </div>
+                <label class="lv-field">
+                    <span>地点</span>
+                    <input @bind="_item.Location" @bind:event="oninput" @bind:after="MarkDirty" maxlength="100" placeholder="哪里发生了这一刻？" />
+                </label>
+                <label class="lv-field">
+                    <span>回忆</span>
+                    <textarea @bind="_item.Story" @bind:event="oninput" @bind:after="MarkDirty" rows="8" maxlength="5000" placeholder="写下当时的细节、对话和感受…"></textarea>
+                    <small>@_item.Story.Length / 5000</small>
+                </label>
+            </section>
+
+            <aside class="lv-form-card">
+                <h2>当天的心情</h2>
+                <p class="lv-muted">可多选，仅用于回顾，不做关系评分。</p>
+                <div class="lv-mood-picker">
+                    @foreach (var mood in Moods)
+                    {
+                        var selected = _item.MoodTags.Contains(mood);
+                        <button type="button" class="lv-mood-chip @(selected ? "selected" : "")" aria-pressed="@selected" @onclick="() => ToggleMood(mood)">
+                            <span>@MoodEmoji(mood)</span> @mood
+                        </button>
+                    }
+                </div>
+
+                <h2 class="lv-section-title">照片相册</h2>
+                <p class="lv-muted">最多 9 张，单张不超过 10MB。上传后会自动压缩并移除位置等元数据。</p>
+                <label class="lv-upload-zone">
+                    <Icon Name="camera" Size="26" />
+                    <span>选择照片</span>
+                    <small>JPEG / PNG / WebP / GIF</small>
+                    <InputFile OnChange="UploadAsync" multiple accept="image/jpeg,image/png,image/webp,image/gif" disabled="@(_uploading || _item.Photos.Count + _uploads.Count >= 9)" />
+                </label>
+                @if (_uploading)
+                {
+                    <p class="lv-upload-status" role="status">正在压缩照片…</p>
+                }
+                @if (_uploads.Count > 0)
+                {
+                    <div class="lv-pending-photos">
+                        @foreach (var upload in _uploads)
+                        {
+                            <div class="lv-pending-photo">
+                                <img src="@upload.PreviewUrl" alt="待保存照片" />
+                                <button type="button" aria-label="移除待保存照片" @onclick="() => RemoveUpload(upload)"><Icon Name="close" Size="14" /></button>
+                            </div>
+                        }
+                    </div>
+                }
+                <PhotoGallery Photos="@_item.Photos" Editable="true" OnCover="SetCoverAsync" OnMove="MovePhotoAsync" OnDelete="RemovePhoto" />
+            </aside>
+        </div>
+    </div>
+    }
+</EditForm>
+
+@code {
+    [Parameter] public string? EventId { get; set; }
+    [Parameter] public string WorkspaceItemId { get; set; } = string.Empty;
+    [Parameter] public EventCallback<string> OnSaved { get; set; }
+    [Parameter] public EventCallback OnRequestClose { get; set; }
+
+    private static readonly string[] Moods = ["甜蜜", "安心", "心动", "紧张", "平淡", "幸福"];
+    private RelationshipEvent _item = new();
+    private readonly List<PendingUpload> _uploads = [];
+    private readonly List<ValidationIssue> _errors = [];
+    private bool _isNew;
+    private bool _saving;
+    private bool _uploading;
+    private bool _dirty;
+    private string _status = string.Empty;
+
+    protected override void OnInitialized()
+    {
+        var existing = EventId is null ? null : State.Data.Events.FirstOrDefault(item => item.Id == EventId);
+        _isNew = existing is null;
+        _item = existing is null
+            ? new RelationshipEvent { OccurredOn = State.Today, StageId = State.Data.Stages.OrderBy(item => item.SortOrder).First().Id }
+            : JsonClone(existing);
+        DirtyRegistry.Register(WorkspaceItemId, () => _dirty, SaveForCloseAsync);
+    }
+
+    private async Task UploadAsync(InputFileChangeEventArgs args)
+    {
+        _uploading = true;
+        _errors.Clear();
+        try
+        {
+            foreach (var file in args.GetMultipleFiles(9))
+            {
+                if (_item.Photos.Count + _uploads.Count >= LoveevoValidation.MaxPhotosPerEvent)
+                {
+                    _errors.Add(new(string.Empty, "每条事件最多 9 张照片。"));
+                    break;
+                }
+                await using var stream = file.OpenReadStream(LoveevoValidation.MaxPhotoBytes);
+                using var buffer = new MemoryStream();
+                await stream.CopyToAsync(buffer);
+                var upload = await Images.CompressAsync(file.Name, file.ContentType, buffer.ToArray());
+                _uploads.Add(new PendingUpload(upload, $"data:{upload.ContentType};base64,{Convert.ToBase64String(upload.Data)}"));
+                MarkDirty();
+            }
+        }
+        catch (Exception ex)
+        {
+            _errors.Add(new(string.Empty, ex.Message));
+        }
+        finally
+        {
+            _uploading = false;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        await SaveCoreAsync(close: false);
+    }
+
+    private async Task<bool> SaveForCloseAsync() => await SaveCoreAsync(close: false);
+
+    private async Task<bool> SaveCoreAsync(bool close)
+    {
+        if (_saving) return false;
+        _saving = true;
+        _errors.Clear();
+        _status = string.Empty;
+        try
+        {
+            await State.SaveEventAsync(_item, _uploads.Select(item => item.Upload).ToList());
+            var saved = State.Data.Events.First(item => item.Id == _item.Id);
+            _item = JsonClone(saved);
+            _uploads.Clear();
+            _dirty = false;
+            BeforeUnload.SetDirty(WorkspaceItemId, false);
+            _status = "已保存到本机。";
+            await OnSaved.InvokeAsync(saved.Id);
+            return true;
+        }
+        catch (ValidationException ex)
+        {
+            _errors.AddRange(ex.Issues);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _errors.Add(new(string.Empty, ex.Message));
+            return false;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task ExitPrivacyAsync()
+    {
+        var preferences = System.Text.Json.JsonSerializer.Deserialize<AppPreferences>(System.Text.Json.JsonSerializer.Serialize(State.Data.Preferences))!;
+        preferences.PrivacyMode = false;
+        await State.SavePreferencesAsync(preferences);
+    }
+
+    private async Task CloseAsync()
+    {
+        if (_dirty)
+        {
+            var decision = await DialogService.RequestCloseDecisionAsync("未保存的修改");
+            if (decision == CloseDecision.Cancel) return;
+            if (decision == CloseDecision.Save && !await SaveForCloseAsync()) return;
+        }
+        await OnRequestClose.InvokeAsync();
+    }
+
+    private void ToggleMood(string mood)
+    {
+        if (_item.MoodTags.Contains(mood)) _item.MoodTags.Remove(mood);
+        else _item.MoodTags.Add(mood);
+        MarkDirty();
+    }
+
+    private Task SetCoverAsync(string photoId)
+    {
+        foreach (var photo in _item.Photos) photo.IsCover = photo.Id == photoId;
+        MarkDirty();
+        return Task.CompletedTask;
+    }
+
+    private Task MovePhotoAsync(PhotoGallery.PhotoMoveRequest request)
+    {
+        var ordered = _item.Photos.OrderBy(photo => photo.SortOrder).ToList();
+        var index = ordered.FindIndex(photo => photo.Id == request.Id);
+        var target = Math.Clamp(index + request.Direction, 0, ordered.Count - 1);
+        (ordered[index], ordered[target]) = (ordered[target], ordered[index]);
+        for (var i = 0; i < ordered.Count; i += 1) ordered[i].SortOrder = i;
+        _item.Photos = ordered;
+        MarkDirty();
+        return Task.CompletedTask;
+    }
+
+    private void RemovePhoto(string photoId)
+    {
+        _item.Photos.RemoveAll(photo => photo.Id == photoId);
+        if (_item.Photos.Count > 0 && _item.Photos.All(photo => !photo.IsCover))
+            _item.Photos.OrderBy(photo => photo.SortOrder).First().IsCover = true;
+        MarkDirty();
+    }
+
+    private void RemoveUpload(PendingUpload upload)
+    {
+        _uploads.Remove(upload);
+        MarkDirty();
+    }
+
+    private void MarkDirty()
+    {
+        _dirty = true;
+        BeforeUnload.SetDirty(WorkspaceItemId, true);
+    }
+
+    private static string MoodEmoji(string mood) => mood switch
+    {
+        "甜蜜" => "🍯",
+        "安心" => "🌿",
+        "心动" => "💓",
+        "紧张" => "🫧",
+        "平淡" => "☁️",
+        "幸福" => "✨",
+        _ => "💭"
+    };
+
+    private static RelationshipEvent JsonClone(RelationshipEvent item) =>
+        System.Text.Json.JsonSerializer.Deserialize<RelationshipEvent>(System.Text.Json.JsonSerializer.Serialize(item))!;
+
+    public void Dispose()
+    {
+        DirtyRegistry.Unregister(WorkspaceItemId);
+        BeforeUnload.SetDirty(WorkspaceItemId, false);
+    }
+
+    private sealed record PendingUpload(PhotoUpload Upload, string PreviewUrl);
+}

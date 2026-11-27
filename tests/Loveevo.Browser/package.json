@@ -1,0 +1,13 @@
+{
+  "name": "loveevo.browser",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Loveevo end-to-end browser tests",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.0",
+    "@playwright/test": "1.56.1"
+  }
+}

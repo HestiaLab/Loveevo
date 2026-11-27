@@ -1,0 +1,9 @@
+bin/
+obj/
+artifacts/
+node_modules/
+test-results/
+playwright-report/
+.vs/
+*.user
+vibe_images/

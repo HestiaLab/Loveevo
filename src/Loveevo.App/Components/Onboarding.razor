@@ -1,0 +1,64 @@
+@using Loveevo.Core.Models
+@inject LoveevoState State
+
+<div class="lv-onboarding">
+    <div class="lv-onboarding-art"><img src="assets/loveevo-hero.png" alt="" /></div>
+    <div class="lv-onboarding-card">
+        @if (_step == 1)
+        {
+            <span class="lv-eyebrow">欢迎来到 Loveevo</span>
+            <h1>先认识一下你们。</h1>
+            <p class="lv-muted">这些资料只保存在当前浏览器，用来装饰你们的纪念册。</p>
+            <label class="lv-field"><span>我的称呼</span><input @bind="_profile.PartnerOneName" @bind:event="oninput" maxlength="20" placeholder="我" /></label>
+            <label class="lv-field"><span>对方的称呼</span><input @bind="_profile.PartnerTwoName" @bind:event="oninput" maxlength="20" placeholder="你" /></label>
+            <label class="lv-field"><span>你们在一起的日子</span><input type="date" @bind="_profile.StartDate" max="@State.Today.ToString("yyyy-MM-dd")" /></label>
+            <div class="lv-onboarding-actions"><button type="button" class="lv-button ghost" @onclick="SkipAsync">暂时跳过</button><button type="button" class="lv-button primary" @onclick="Next">继续 <Icon Name="chevron-right" Size="16" /></button></div>
+        }
+        else
+        {
+            <span class="lv-eyebrow">故事的第一页</span>
+            <h1>记录第一个瞬间。</h1>
+            <p class="lv-muted">可以现在记录，也可以之后随时补充。</p>
+            <label class="lv-field"><span>标题</span><input @bind="_firstTitle" @bind:event="oninput" maxlength="80" placeholder="例如：我们见面了" /></label>
+            <label class="lv-field"><span>阶段</span><select @bind="_firstStageId">@foreach (var stage in State.Data.Stages.OrderBy(item => item.SortOrder)){<option value="@stage.Id">@stage.Name</option>}</select></label>
+            <label class="lv-field"><span> date</span><input type="date" @bind="_firstDate" max="@State.Today.ToString("yyyy-MM-dd")" /></label>
+            <div class="lv-onboarding-actions"><button type="button" class="lv-button ghost" @onclick="FinishAsync">稍后记录</button><button type="button" class="lv-button primary" disabled="@string.IsNullOrWhiteSpace(_firstTitle)" @onclick="FinishWithEventAsync">开始我们的故事</button></div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public EventCallback OnCompleted { get; set; }
+
+    private RelationshipProfile _profile = new();
+    private int _step = 1;
+    private string _firstTitle = string.Empty;
+    private string _firstStageId = string.Empty;
+    private DateOnly _firstDate;
+
+    protected override void OnInitialized()
+    {
+        _profile = System.Text.Json.JsonSerializer.Deserialize<RelationshipProfile>(System.Text.Json.JsonSerializer.Serialize(State.Data.Profile))!;
+        _firstStageId = State.Data.Stages.OrderBy(item => item.SortOrder).First().Id;
+        _firstDate = State.Today;
+    }
+
+    private void Next() => _step = 2;
+
+    private async Task SkipAsync() => await FinishAsync();
+
+    private async Task FinishAsync()
+    {
+        await State.SaveProfileAsync(_profile);
+        var preferences = System.Text.Json.JsonSerializer.Deserialize<AppPreferences>(System.Text.Json.JsonSerializer.Serialize(State.Data.Preferences))!;
+        preferences.OnboardingCompleted = true;
+        await State.SavePreferencesAsync(preferences);
+        await OnCompleted.InvokeAsync();
+    }
+
+    private async Task FinishWithEventAsync()
+    {
+        await State.SaveEventAsync(new RelationshipEvent { StageId = _firstStageId, Title = _firstTitle, OccurredOn = _firstDate });
+        await FinishAsync();
+    }
+}

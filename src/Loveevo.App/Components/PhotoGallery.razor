@@ -1,0 +1,140 @@
+@using Loveevo.Core.Models
+@using Loveevo.App.Services
+@using Microsoft.JSInterop
+@inject BrowserStore Store
+@inject LoveevoState State
+@inject IJSRuntime JS
+
+<div class="lv-photo-gallery @(Editable ? "is-editable" : "")">
+    @if (Photos.Count == 0)
+    {
+        <div class="lv-photo-empty">
+            <Icon Name="image" Size="26" />
+            <span>还没有照片</span>
+        </div>
+    }
+    else
+    {
+        <div class="lv-photo-grid">
+            @foreach (var photo in Photos.OrderBy(item => item.SortOrder))
+            {
+                var current = photo;
+                <div class="lv-photo-item @(current.IsCover ? "is-cover" : "")"
+                     draggable="@Editable"
+                     @ondragstart="() => _dragId = current.Id"
+                     @ondragover:preventDefault="true"
+                     @ondrop="() => _ = DropAsync(current.Id)">
+                    <button type="button" class="lv-photo-open" @onclick="() => OpenLightbox(current.Id)" aria-label="查看照片 @current.FileName" disabled="@State.Data.Preferences.PrivacyMode">
+                        @if (State.Data.Preferences.PrivacyMode)
+                        {
+                            <span class="lv-privacy-photo"><Icon Name="lock" Size="22" /></span>
+                        }
+                        else if (_urls.TryGetValue(current.Id, out var url))
+                        {
+                            <img src="@url" alt="@current.FileName" loading="lazy" />
+                        }
+                        else
+                        {
+                            <span class="lv-photo-loading">加载中…</span>
+                        }
+                    </button>
+                    @if (current.IsCover)
+                    {
+                        <span class="lv-cover-badge"><Icon Name="pin" Size="12" /> 封面</span>
+                    }
+                    @if (Editable)
+                    {
+                        <div class="lv-photo-actions">
+                            <button type="button" title="设为封面" aria-label="设为封面" @onclick="() => OnCover.InvokeAsync(current.Id)"><Icon Name="pin" Size="14" /></button>
+                            <button type="button" title="向前移动" aria-label="向前移动" disabled="@(current.SortOrder == 0)" @onclick="() => OnMove.InvokeAsync(new PhotoMoveRequest(current.Id, -1))"><Icon Name="chevron-left" Size="14" /></button>
+                            <button type="button" title="向后移动" aria-label="向后移动" disabled="@(current.SortOrder == Photos.Count - 1)" @onclick="() => OnMove.InvokeAsync(new PhotoMoveRequest(current.Id, 1))"><Icon Name="chevron-right" Size="14" /></button>
+                            <button type="button" title="删除照片" aria-label="删除照片" class="danger" @onclick="() => OnDelete.InvokeAsync(current.Id)"><Icon Name="trash" Size="14" /></button>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@if (_lightboxId is not null)
+{
+    var ordered = Photos.OrderBy(item => item.SortOrder).ToList();
+    var index = ordered.FindIndex(item => item.Id == _lightboxId);
+    var photo = ordered[index];
+    <div class="lv-lightbox" role="dialog" aria-modal="true" aria-label="照片预览" @onkeydown="HandleLightboxKey">
+        <button type="button" class="lv-lightbox-close" aria-label="关闭预览" @onclick="CloseLightbox"><Icon Name="close" Size="24" /></button>
+        @if (ordered.Count > 1)
+        {
+            <button type="button" class="lv-lightbox-nav prev" aria-label="上一张" @onclick="() => MoveLightbox(-1)"><Icon Name="chevron-left" Size="28" /></button>
+            <button type="button" class="lv-lightbox-nav next" aria-label="下一张" @onclick="() => MoveLightbox(1)"><Icon Name="chevron-right" Size="28" /></button>
+        }
+        <img src="@_urls[photo.Id]" alt="@photo.FileName" />
+        <div class="lv-lightbox-caption">@(index + 1) / @ordered.Count · @photo.FileName</div>
+    </div>
+}
+
+@code {
+    [Parameter] public IReadOnlyList<EventPhoto> Photos { get; set; } = [];
+    [Parameter] public bool Editable { get; set; }
+    [Parameter] public EventCallback<string> OnCover { get; set; }
+    [Parameter] public EventCallback<PhotoMoveRequest> OnMove { get; set; }
+    [Parameter] public EventCallback<string> OnDelete { get; set; }
+
+    private readonly Dictionary<string, string> _urls = new(StringComparer.Ordinal);
+    private string? _dragId;
+    private string? _lightboxId;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (State.Data.Preferences.PrivacyMode)
+        {
+            _urls.Clear();
+            _lightboxId = null;
+            return;
+        }
+        foreach (var photo in Photos)
+        {
+            if (_urls.ContainsKey(photo.Id)) continue;
+            var url = await Store.GetPhotoDataUrlAsync(photo.Id);
+            if (url is not null) _urls[photo.Id] = url;
+        }
+        foreach (var id in _urls.Keys.Where(id => Photos.All(photo => photo.Id != id)).ToList())
+            _urls.Remove(id);
+    }
+
+    private Task OpenLightbox(string id)
+    {
+        _lightboxId = id;
+        return Task.CompletedTask;
+    }
+
+    private void CloseLightbox() => _lightboxId = null;
+
+    private void MoveLightbox(int direction)
+    {
+        var ordered = Photos.OrderBy(item => item.SortOrder).ToList();
+        var index = ordered.FindIndex(item => item.Id == _lightboxId);
+        index = (index + direction + ordered.Count) % ordered.Count;
+        _lightboxId = ordered[index].Id;
+    }
+
+    private void HandleLightboxKey(KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape") CloseLightbox();
+        if (args.Key == "ArrowLeft") MoveLightbox(-1);
+        if (args.Key == "ArrowRight") MoveLightbox(1);
+    }
+
+    private async Task DropAsync(string targetId)
+    {
+        if (_dragId is null || _dragId == targetId) return;
+        var source = Photos.First(item => item.Id == _dragId);
+        var target = Photos.First(item => item.Id == targetId);
+        var direction = source.SortOrder < target.SortOrder ? 1 : -1;
+        await OnMove.InvokeAsync(new PhotoMoveRequest(source.Id, direction));
+        _dragId = null;
+    }
+
+    public sealed record PhotoMoveRequest(string Id, int Direction);
+}

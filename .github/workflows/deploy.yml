@@ -1,0 +1,85 @@
+name: Build, test and deploy Loveevo
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Setup Node
+        uses: actions/node-action@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: tests/Loveevo.Browser/package-lock.json
+
+      - name: Restore and test .NET
+        run: dotnet test Loveevo.sln --configuration Release
+
+      - name: Install browser test dependencies
+        working-directory: tests/Loveevo.Browser
+        run: npm ci
+
+      - name: Install Chromium
+        working-directory: tests/Loveevo.Browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Publish PWA
+        run: dotnet publish src/Loveevo.App/Loveevo.App.csproj --configuration Release --no-restore --output artifacts/publish
+
+      - name: Run browser, accessibility and offline tests
+        working-directory: tests/Loveevo.Browser
+        run: |
+          dotnet run --project ../../src/Loveevo.App/Loveevo.App.csproj --configuration Release --no-build --urls http://127.0.0.1:5173 > /tmp/loveevo-dev.log 2>&1 &
+          DEV_PID=$!
+          python -m http.server 5174 --directory ../../artifacts/publish/wwwroot > /tmp/loveevo-static.log 2>&1 &
+          STATIC_PID=$!
+          trap 'kill $DEV_PID $STATIC_PID 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:5173 >/dev/null && curl -fsS http://127.0.0.1:5174 >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          npm test
+
+      - name: Configure GitHub Pages subpath
+        run: |
+          sed -i 's|<base href="/" />|<base href="/Loveevo/" />|' artifacts/publish/wwwroot/index.html
+          sed -i 's|const base = "/";|const base = "/Loveevo/";|' artifacts/publish/wwwroot/service-worker.js
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: artifacts/publish/wwwroot
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

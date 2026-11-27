@@ -1,0 +1,254 @@
+@using Atlas.Blazor.Content
+@using Atlas.Core.Changes
+@using Atlas.Core.Definitions
+@using Atlas.Core.Results
+@using Microsoft.Extensions.Localization
+@using Loveevo.App.Localization
+@implements IAsyncDisposable
+@inject IAtlasWorkspaceFactory Factory
+@inject LoveevoState State
+@inject BrowserStore Store
+@inject DialogService Dialogs
+@inject EditorDirtyRegistry DirtyRegistry
+@inject IStringLocalizer<LoveevoStrings> Text
+@inject IJSRuntime JS
+
+<div class="lv-workspace @(State.Data.Preferences.PrivacyMode ? "privacy-on" : "")">
+    <AtlasWorkspaceHost Workspace="@_workspace"
+                        WorkspaceOwnership="WorkspaceOwnership.External"
+                        EnableInteractions="true"
+                        TopToolbarContent="@TopToolbar"
+                        StatusBarContent="@StatusBar">
+        <ContentRoutes>
+            <AtlasContentRoute Kind="loveevo-timeline">
+                <ChildContent Context="content"><Timeline OnNew="() => OpenEditorAsync(null)" OnOpen="OpenDetailAsync" /></ChildContent>
+            </AtlasContentRoute>
+            <AtlasContentRoute Kind="loveevo-stages">
+                <ChildContent Context="content"><StagePanel /></ChildContent>
+            </AtlasContentRoute>
+            <AtlasContentRoute Kind="loveevo-filters">
+                <ChildContent Context="content"><FilterPanel /></ChildContent>
+            </AtlasContentRoute>
+            <AtlasContentRoute Kind="loveevo-overview">
+                <ChildContent Context="content"><OverviewPanel /></ChildContent>
+            </AtlasContentRoute>
+            <AtlasContentRoute Kind="loveevo-settings">
+                <ChildContent Context="content"><SettingsPanel OnResetLayout="ResetLayoutAsync" OnLayoutRestored="ReloadLayoutAsync" /></ChildContent>
+            </AtlasContentRoute>
+            <AtlasContentRoute Kind="loveevo-event-detail">
+                <ChildContent Context="content">
+                    <EventDetail EventId="@content.Reference.ResourceId"
+                                 OnEdit="() => OpenEditorAsync(content.Reference.ResourceId)"
+                                 OnDeleted="() => CloseItemAsync(content.ItemId)" />
+                </ChildContent>
+            </AtlasContentRoute>
+            <AtlasContentRoute Kind="loveevo-event-editor">
+                <ChildContent Context="content">
+                    <EventEditor EventId="@(content.Reference.ResourceId.StartsWith("new-", StringComparison.Ordinal) ? null : content.Reference.ResourceId)"
+                                 WorkspaceItemId="@content.ItemId.Value"
+                                 OnRequestClose="() => CloseItemAsync(content.ItemId)" />
+                </ChildContent>
+            </AtlasContentRoute>
+        </ContentRoutes>
+    </AtlasWorkspaceHost>
+</div>
+
+@code {
+    private readonly AtlasXmlLayoutSerializer _serializer = new();
+    private IAtlasWorkspace? _workspace;
+    private IJSObjectReference? _jsModule;
+    private IJSObjectReference? _a11yConnection;
+    private bool _disposed;
+
+    protected override async Task OnInitializedAsync()
+    {
+        State.Changed += OnStateChanged;
+        await CreateWorkspaceAsync(restore: true);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        _jsModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/loveevo.js");
+        _a11yConnection = await _jsModule.InvokeAsync<IJSObjectReference>("enhanceAccessibility");
+    }
+
+    private async Task CreateWorkspaceAsync(bool restore)
+    {
+        if (_workspace is not null)
+        {
+            _workspace.Changed -= OnWorkspaceChanged;
+            await _workspace.DisposeAsync();
+        }
+
+        var result = Factory.Create(
+            LoveevoWorkspaceDefinition.Create(),
+            new AtlasWorkspaceOptions(closeGuardResolver: new EditorCloseGuardResolver(DirtyRegistry, Dialogs)));
+        if (!result.Succeeded || result.Value is null) return;
+        _workspace = result.Value;
+        _workspace.Changed += OnWorkspaceChanged;
+
+        if (restore)
+        {
+            var xml = await Store.GetLayoutAsync();
+            if (!string.IsNullOrWhiteSpace(xml))
+            {
+                var restored = _serializer.DeserializeWithOptions(
+                    xml,
+                    _workspace.Id,
+                    new LayoutRestoreOptions(
+                        isContentRegistered: reference => LoveevoWorkspaceDefinition.ContentKinds.Contains(reference.Kind, StringComparer.Ordinal),
+                        missingContentPolicy: MissingContentPolicy.PreservePlaceholder,
+                        reservedItemIds: [new DockItemId(LoveevoWorkspaceDefinition.TimelineItemId)]));
+                if (restored.Succeeded && restored.Value is not null)
+                    await _workspace.ExecuteAsync(new RestoreWorkspaceOperation(restored.Value));
+            }
+        }
+        await RefreshDocumentTitlesAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void OnWorkspaceChanged(object? sender, WorkspaceChangedEventArgs args)
+    {
+        _ = PersistLayoutAsync();
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private async Task PersistLayoutAsync()
+    {
+        if (_workspace is null || _disposed) return;
+        try
+        {
+            var xml = _serializer.Serialize(_workspace.Current);
+            await Store.SaveLayoutAsync(xml);
+        }
+        catch
+        {
+            // Layout persistence must never interrupt the current workspace session.
+        }
+    }
+
+    private void OnStateChanged()
+    {
+        _ = RefreshDocumentTitlesAsync();
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private async Task RefreshDocumentTitlesAsync()
+    {
+        if (_workspace is null) return;
+        foreach (var item in _workspace.EnumerateItems(candidate =>
+                     candidate.Content.Kind is "loveevo-event-detail" or "loveevo-event-editor"))
+        {
+            var title = State.Data.Preferences.PrivacyMode
+                ? "回忆已隐藏"
+                : State.Data.Events.FirstOrDefault(candidate => candidate.Id == item.Content.ResourceId)?.Title
+                    ?? (item.Content.Kind == "loveevo-event-editor" ? "新回忆" : "回忆");
+            if (item.Title != title)
+                await _workspace.ExecuteAsync(new UpdateItemPresentationOperation(item.Id, title, item.IconKey));
+        }
+    }
+
+    private RenderFragment TopToolbar => @<header class="lv-topbar">
+        <div class="lv-brand"><span class="lv-brand-mark"><Icon Name="heart" Size="18" /></span><strong>@Text["AppName"]</strong><span>@Text["AppTagline"]</span></div>
+        <div class="lv-topbar-actions">
+            <button type="button" class="lv-button ghost small" @onclick="OpenTimelineAsync"><Icon Name="heart" Size="15" /> @Text["Timeline"]</button>
+            <button type="button" class="lv-button primary small" @onclick="() => OpenEditorAsync(null)"><Icon Name="plus" Size="15" /> @Text["NewMemory"]</button>
+            <button type="button" class="lv-icon-button" title="@(State.Data.Preferences.PrivacyMode ? "退出隐私模式" : "开启隐私模式")" aria-label="@Text["PrivacyToggle"]" @onclick="TogglePrivacyAsync"><Icon Name="@(State.Data.Preferences.PrivacyMode ? "eye-off" : "lock")" Size="18" /></button>
+        </div>
+    </header>;
+
+    private RenderFragment StatusBar => @<footer class="lv-statusbar">
+        <span><span class="lv-status-dot"></span> @Text["DataLocalOnly"]</span>
+        <span>@State.VisibleEvents.Count 条回忆 · @State.Data.Events.SelectMany(item => item.Photos).Count() 张照片</span>
+    </footer>;
+
+    private async Task OpenToolAsync(string itemId)
+    {
+        if (_workspace is null) return;
+        var id = new DockItemId(itemId);
+        var group = _workspace.Current.Nodes.Values.OfType<GroupNode>().FirstOrDefault(item => item.ItemIds.Contains(id));
+        if (group is null) return;
+        if (group.Visibility != GroupVisibility.Expanded)
+            await _workspace.ExecuteAsync(new SetGroupVisibilityOperation(group.Id, GroupVisibility.Expanded));
+        await _workspace.ExecuteAsync(new SelectItemOperation(id));
+    }
+
+    private async Task OpenTimelineAsync()
+    {
+        if (_workspace is null) return;
+        var id = new DockItemId(LoveevoWorkspaceDefinition.TimelineItemId);
+        if (_workspace.TryGetItem(id) is null)
+        {
+            var timeline = new DockItem(id, DockItemKind.Document, new ContentReference("loveevo-timeline", "timeline"), DockItemCapabilityPresets.Document, "我们的时间线", "heart", new DocumentState(true, false));
+            await _workspace.ExecuteAsync(new OpenItemOperation(timeline, new LayoutNodeId(LoveevoWorkspaceDefinition.DocumentGroupId), ContentDeduplicationMode.ActivateExisting));
+        }
+        else await _workspace.ExecuteAsync(new SelectItemOperation(id));
+    }
+
+    private async Task OpenDetailAsync(string eventId)
+    {
+        var item = State.Data.Events.FirstOrDefault(candidate => candidate.Id == eventId);
+        if (item is not null) await OpenDocumentAsync("loveevo-event-detail", eventId, item.Title, "heart");
+    }
+
+    private Task OpenEditorAsync(string? eventId)
+    {
+        var resourceId = eventId ?? $"new-{Guid.NewGuid():N}";
+        var title = eventId is null ? "新回忆" : State.Data.Events.FirstOrDefault(item => item.Id == eventId)?.Title ?? "编辑回忆";
+        return OpenDocumentAsync("loveevo-event-editor", resourceId, title, "edit");
+    }
+
+    private async Task OpenDocumentAsync(string kind, string resourceId, string title, string icon)
+    {
+        if (_workspace is null) return;
+        var id = new DockItemId($"doc-{kind}-{resourceId}");
+        if (_workspace.TryGetItem(id) is not null)
+        {
+            await _workspace.ExecuteAsync(new SelectItemOperation(id));
+            return;
+        }
+        var item = new DockItem(id, DockItemKind.Document, new ContentReference(kind, resourceId), DockItemCapabilityPresets.Document, State.Data.Preferences.PrivacyMode ? "回忆已隐藏" : title, icon, new DocumentState(false, false));
+        await _workspace.ExecuteAsync(new OpenItemOperation(item, new LayoutNodeId(LoveevoWorkspaceDefinition.DocumentGroupId), ContentDeduplicationMode.ActivateExisting));
+    }
+
+    private async Task CloseItemAsync(DockItemId itemId)
+    {
+        if (_workspace is null) return;
+        await _workspace.ExecuteAsync(new CloseItemOperation(itemId));
+    }
+
+    private async Task ResetLayoutAsync()
+    {
+        var confirmed = await Dialogs.ConfirmAsync("重置布局", "将恢复默认的两栏工作台布局。当前事件和照片不会受影响。", "重置布局");
+        if (!confirmed) return;
+        await CreateWorkspaceAsync(restore: false);
+        await PersistLayoutAsync();
+    }
+
+    private async Task ReloadLayoutAsync()
+    {
+        await Task.Yield();
+        await CreateWorkspaceAsync(restore: true);
+    }
+
+    private async Task TogglePrivacyAsync()
+    {
+        var preferences = System.Text.Json.JsonSerializer.Deserialize<AppPreferences>(System.Text.Json.JsonSerializer.Serialize(State.Data.Preferences))!;
+        preferences.PrivacyMode = !preferences.PrivacyMode;
+        await State.SavePreferencesAsync(preferences);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _disposed = true;
+        State.Changed -= OnStateChanged;
+        if (_workspace is not null)
+        {
+            _workspace.Changed -= OnWorkspaceChanged;
+            await _workspace.DisposeAsync();
+        }
+        if (_a11yConnection is not null) await _a11yConnection.InvokeVoidAsync("dispose");
+        if (_jsModule is not null) await _jsModule.DisposeAsync();
+    }
+}

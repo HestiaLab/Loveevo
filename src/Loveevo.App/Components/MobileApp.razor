@@ -1,0 +1,71 @@
+@inject LoveevoState State
+@inject TimelineFilterState Filters
+
+<div class="lv-mobile-app @(State.Data.Preferences.PrivacyMode ? "privacy-on" : "")">
+    <header class="lv-mobile-header">
+        <div class="lv-brand"><span class="lv-brand-mark"><Icon Name="heart" Size="17" /></span><strong>Loveevo</strong></div>
+        <div class="lv-topbar-actions">
+            <button type="button" class="lv-icon-button" aria-label="切换隐私模式" @onclick="TogglePrivacyAsync"><Icon Name="@(State.Data.Preferences.PrivacyMode ? "eye-off" : "lock")" Size="18" /></button>
+            <button type="button" class="lv-button primary small" @onclick="NewEvent"><Icon Name="plus" Size="15" /> 新回忆</button>
+        </div>
+    </header>
+
+    @if (_view == "timeline")
+    {
+        <div class="lv-mobile-stage-strip">
+            <button type="button" class="@(Filters.StageId is null ? "active" : "")" @onclick="() => SelectStage(null)">全部</button>
+            @foreach (var stage in State.Data.Stages.OrderBy(item => item.SortOrder))
+            {
+                <button type="button" class="@(Filters.StageId == stage.Id ? "active" : "")" @onclick="() => SelectStage(stage.Id)">@stage.Name</button>
+            }
+        </div>
+        <main class="lv-mobile-content"><Timeline OnNew="NewEvent" OnOpen="OpenDetail" /></main>
+    }
+    else if (_view == "stages")
+    {
+        <main class="lv-mobile-content tool-content"><StagePanel /></main>
+    }
+    else if (_view == "overview")
+    {
+        <main class="lv-mobile-content tool-content"><OverviewPanel /></main>
+    }
+    else
+    {
+        <main class="lv-mobile-content tool-content"><SettingsPanel /></main>
+    }
+
+    <nav class="lv-mobile-nav" aria-label="主导航">
+        <button type="button" class="@(_view == "timeline" ? "active" : "")" @onclick='() => _view = "timeline"'><Icon Name="heart" Size="20" /><span>时间线</span></button>
+        <button type="button" class="@(_view == "stages" ? "active" : "")" @onclick='() => _view = "stages"'><Icon Name="layers" Size="20" /><span>阶段</span></button>
+        <button type="button" class="@(_view == "overview" ? "active" : "")" @onclick='() => _view = "overview"'><Icon Name="chart" Size="20" /><span>总览</span></button>
+        <button type="button" class="@(_view == "settings" ? "active" : "")" @onclick='() => _view = "settings"'><Icon Name="settings" Size="20" /><span>设置</span></button>
+    </nav>
+
+    @if (_detailId is not null)
+    {
+        <div class="lv-mobile-overlay"><button type="button" class="lv-mobile-back" @onclick="() => _detailId = null"><Icon Name="chevron-left" Size="18" /> 返回</button><EventDetail EventId="@_detailId" OnEdit="EditSelected" OnDeleted="() => _detailId = null" /></div>
+    }
+    @if (_editorOpen)
+    {
+        <div class="lv-mobile-overlay editor-overlay"><EventEditor EventId="@_editorEventId" WorkspaceItemId="@_editorWorkspaceId" OnRequestClose="() => _editorOpen = false" /></div>
+    }
+</div>
+
+@code {
+    private string _view = "timeline";
+    private string? _detailId;
+    private bool _editorOpen;
+    private string? _editorEventId;
+    private string _editorWorkspaceId = "mobile-" + Guid.NewGuid().ToString("N");
+
+    private void SelectStage(string? stageId) { Filters.StageId = stageId; Filters.NotifyChanged(); }
+    private void OpenDetail(string eventId) => _detailId = eventId;
+    private void EditSelected() { _editorEventId = _detailId; _detailId = null; _editorWorkspaceId = "mobile-" + Guid.NewGuid().ToString("N"); _editorOpen = true; }
+    private void NewEvent() { _editorEventId = null; _editorWorkspaceId = "mobile-" + Guid.NewGuid().ToString("N"); _editorOpen = true; }
+    private async Task TogglePrivacyAsync()
+    {
+        var preferences = System.Text.Json.JsonSerializer.Deserialize<AppPreferences>(System.Text.Json.JsonSerializer.Serialize(State.Data.Preferences))!;
+        preferences.PrivacyMode = !preferences.PrivacyMode;
+        await State.SavePreferencesAsync(preferences);
+    }
+}

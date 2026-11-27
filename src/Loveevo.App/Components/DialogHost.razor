@@ -1,0 +1,40 @@
+@inject DialogService Dialogs
+@implements IDisposable
+
+@if (Dialogs.IsConfirmationOpen || Dialogs.IsCloseDecisionOpen)
+{
+    <div class="lv-dialog-backdrop" role="presentation" @onkeydown="HandleKey">
+        <section class="lv-dialog" role="alertdialog" aria-modal="true" aria-labelledby="dialog-title" aria-describedby="dialog-message">
+            <div class="lv-dialog-icon @(Dialogs.IsDestructive ? "danger" : "")"><Icon Name="@(Dialogs.IsDestructive ? "trash" : "heart")" Size="24" /></div>
+            <h2 id="dialog-title">@Dialogs.Title</h2>
+            <p id="dialog-message">@Dialogs.Message</p>
+            @if (Dialogs.IsCloseDecisionOpen)
+            {
+                <div class="lv-dialog-actions three">
+                    <button type="button" class="lv-button ghost" @onclick="() => Dialogs.ResolveCloseDecision(CloseDecision.Cancel)">继续编辑</button>
+                    <button type="button" class="lv-button ghost danger" @onclick="() => Dialogs.ResolveCloseDecision(CloseDecision.Discard)">放弃修改</button>
+                    <button type="button" class="lv-button primary" @onclick="() => Dialogs.ResolveCloseDecision(CloseDecision.Save)">保存并关闭</button>
+                </div>
+            }
+            else
+            {
+                <div class="lv-dialog-actions">
+                    <button type="button" class="lv-button ghost" @onclick="() => Dialogs.ResolveConfirmation(false)">取消</button>
+                    <button type="button" class="lv-button @(Dialogs.IsDestructive ? "danger-solid" : "primary")" @onclick="() => Dialogs.ResolveConfirmation(true)">@Dialogs.ConfirmText</button>
+                </div>
+            }
+        </section>
+    </div>
+}
+
+@code {
+    protected override void OnInitialized() => Dialogs.Changed += OnChanged;
+    public void Dispose() => Dialogs.Changed -= OnChanged;
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+    private void HandleKey(KeyboardEventArgs args)
+    {
+        if (args.Key != "Escape") return;
+        if (Dialogs.IsCloseDecisionOpen) Dialogs.ResolveCloseDecision(CloseDecision.Cancel);
+        else if (Dialogs.IsConfirmationOpen) Dialogs.ResolveConfirmation(false);
+    }
+}

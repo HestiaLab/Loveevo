@@ -1,0 +1,120 @@
+@inject LoveevoState State
+@inject TimelineFilterState Filters
+@inject DialogService Dialogs
+@implements IDisposable
+
+<div class="lv-tool-panel stage-panel">
+    <header class="lv-panel-heading">
+        <div><span class="lv-eyebrow">关系目录</span><h2>阶段</h2></div>
+        <button type="button" class="lv-icon-button" aria-label="新增阶段" @onclick="NewStage"><Icon Name="plus" Size="18" /></button>
+    </header>
+
+    @if (_editing is not null)
+    {
+        <div class="lv-inline-editor">
+            <label class="lv-field"><span>阶段名称</span><input @bind="_editing.Name" @bind:event="oninput" maxlength="40" /></label>
+            <div class="lv-field-row">
+                <label class="lv-field"><span>图标</span><select @bind="_editing.IconKey"><option value="heart">爱心</option><option value="coffee">咖啡</option><option value="hand">牵手</option><option value="hug">拥抱</option><option value="sparkles">闪光</option><option value="calendar">日历</option><option value="image">照片</option></select></label>
+                <label class="lv-field"><span>颜色</span><input type="color" @bind="_editing.Color" /></label>
+            </div>
+            @if (!string.IsNullOrWhiteSpace(_error)) { <p class="lv-field-error">@_error</p> }
+            <div class="lv-inline-actions">
+                <button type="button" class="lv-button primary small" @onclick="SaveStageAsync">保存</button>
+                <button type="button" class="lv-button ghost small" @onclick="CancelEdit">取消</button>
+                @if (!_editing.IsPreset)
+                {
+                    <button type="button" class="lv-button ghost small danger" @onclick="DeleteStageAsync">删除</button>
+                }
+            </div>
+        </div>
+    }
+
+    <nav class="lv-stage-nav" aria-label="按阶段筛选">
+        <button type="button" class="lv-stage-nav-item @(Filters.StageId is null ? "active" : "")" @onclick="() => SelectStage(null)">
+            <span class="lv-stage-icon all"><Icon Name="layers" Size="17" /></span>
+            <span class="lv-stage-nav-copy"><strong>全部回忆</strong><small>@State.VisibleEvents.Count 条</small></span>
+        </button>
+        @foreach (var stage in State.Data.Stages.OrderBy(item => item.SortOrder))
+        {
+            var count = State.VisibleEvents.Count(item => item.StageId == stage.Id);
+            <div class="lv-stage-nav-row" draggable="true" @ondragstart="() => _dragStageId = stage.Id" @ondragover:preventDefault="true" @ondrop="() => DropStage(stage.Id)">
+                <button type="button" class="lv-stage-nav-item @(Filters.StageId == stage.Id ? "active" : "")" @onclick="() => SelectStage(stage.Id)" @oncontextmenu="() => EditStage(stage)" @oncontextmenu:preventDefault="true">
+                    <span class="lv-stage-icon" style="--stage-color:@stage.Color"><Icon Name="@stage.IconKey" Size="17" /></span>
+                    <span class="lv-stage-nav-copy"><strong>@stage.Name</strong><small>@count 条</small></span>
+                </button>
+                <button type="button" class="lv-stage-edit" aria-label="编辑 @stage.Name" @onclick="() => EditStage(stage)"><Icon Name="edit" Size="13" /></button>
+            </div>
+        }
+    </nav>
+    <p class="lv-panel-hint">拖动阶段可调整顺序，右键或点击铅笔可编辑。</p>
+</div>
+
+@code {
+    private RelationshipStage? _editing;
+    private string? _dragStageId;
+    private string _error = string.Empty;
+
+    protected override void OnInitialized() => State.Changed += OnStateChanged;
+    public void Dispose() => State.Changed -= OnStateChanged;
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+
+    private void SelectStage(string? stageId = null)
+    {
+        Filters.StageId = stageId;
+        Filters.NotifyChanged();
+    }
+
+    private void NewStage()
+    {
+        _editing = new RelationshipStage { Name = string.Empty, IconKey = "heart", Color = "#d97793", SortOrder = State.Data.Stages.Count };
+        _error = string.Empty;
+    }
+
+    private void EditStage(RelationshipStage stage)
+    {
+        _editing = System.Text.Json.JsonSerializer.Deserialize<RelationshipStage>(System.Text.Json.JsonSerializer.Serialize(stage))!;
+        _error = string.Empty;
+    }
+
+    private void CancelEdit() => _editing = null;
+
+    private async Task SaveStageAsync()
+    {
+        if (_editing is null) return;
+        try
+        {
+            await State.SaveStageAsync(_editing);
+            _editing = null;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task DeleteStageAsync()
+    {
+        if (_editing is null) return;
+        var confirmed = await Dialogs.ConfirmAsync("删除阶段", $"确定删除“{_editing.Name}”吗？有关联事件的阶段不能删除。", "删除阶段", destructive: true);
+        if (!confirmed) return;
+        try
+        {
+            await State.DeleteStageAsync(_editing.Id);
+            _editing = null;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task DropStage(string targetId)
+    {
+        if (_dragStageId is null || _dragStageId == targetId) return;
+        var ids = State.Data.Stages.OrderBy(item => item.SortOrder).Select(item => item.Id).ToList();
+        ids.Remove(_dragStageId);
+        ids.Insert(ids.IndexOf(targetId), _dragStageId);
+        await State.ReorderStagesAsync(ids);
+        _dragStageId = null;
+    }
+}

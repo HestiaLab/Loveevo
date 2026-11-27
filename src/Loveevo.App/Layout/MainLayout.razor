@@ -1,0 +1,65 @@
+﻿@inherits LayoutComponentBase
+@implements IAsyncDisposable
+@using Microsoft.JSInterop
+@using Microsoft.Extensions.Localization
+@using Loveevo.App.Localization
+@inject LoveevoState State
+@inject BrowserStore Store
+@inject IStringLocalizer<LoveevoStrings> Text
+@inject IJSRuntime JS
+
+@if (State.IsLoading)
+{
+    <div class="lv-loading"><div class="lv-loading-mark"><Icon Name="heart" Size="30" /></div><p>@Text["Loading"]</p></div>
+}
+else
+{
+    @Body
+}
+
+<DialogHost />
+
+@if (_updateReady)
+{
+    <div class="lv-update-banner" role="status"><span>Loveevo 有新版本可用。</span><button type="button" class="lv-button primary small" @onclick="ApplyUpdateAsync">更新并刷新</button><button type="button" class="lv-icon-button" aria-label="稍后更新" @onclick="() => _updateReady = false"><Icon Name="close" Size="16" /></button></div>
+}
+
+@code {
+    private bool _updateReady;
+    private IJSObjectReference? _themeModule;
+    private IJSObjectReference? _pwaModule;
+    private DotNetObjectReference<PwaCallback>? _pwaCallback;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await State.InitializeAsync();
+        await Store.StartListeningAsync();
+        State.Changed += OnStateChanged;
+        _pwaModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/pwa.js");
+        _themeModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/loveevo.js");
+        await _themeModule.InvokeVoidAsync("setTheme", State.Data.Preferences.Theme);
+        _pwaCallback = DotNetObjectReference.Create(new PwaCallback(() => _ = InvokeAsync(() => { _updateReady = true; StateHasChanged(); })));
+        await _pwaModule.InvokeVoidAsync("register", _pwaCallback);
+    }
+
+    private void OnStateChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private async Task ApplyUpdateAsync()
+    {
+        if (_pwaModule is not null) await _pwaModule.InvokeVoidAsync("applyUpdate");
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        State.Changed -= OnStateChanged;
+        _pwaCallback?.Dispose();
+        if (_themeModule is not null) await _themeModule.DisposeAsync();
+        if (_pwaModule is not null) await _pwaModule.DisposeAsync();
+    }
+
+    public sealed class PwaCallback(Action onReady)
+    {
+        [JSInvokable]
+        public void OnUpdateReady() => onReady();
+    }
+}

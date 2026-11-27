@@ -1,0 +1,27 @@
+@using Loveevo.App.Services
+@inject BrowserStore Store
+@inject LoveevoState State
+
+@if (State.Data.Preferences.PrivacyMode)
+{
+    <div class="lv-cover-fallback"><Icon Name="lock" Size="24" /></div>
+}
+else if (!string.IsNullOrWhiteSpace(_url))
+{
+    <img class="lv-cover-image" src="@_url" alt="" loading="lazy" />
+}
+else
+{
+    <div class="lv-cover-fallback"><Icon Name="heart" Size="26" /></div>
+}
+
+@code {
+    [Parameter] public EventPhoto? Photo { get; set; }
+
+    private string? _url;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _url = State.Data.Preferences.PrivacyMode || Photo is null ? null : await Store.GetPhotoDataUrlAsync(Photo.Id);
+    }
+}

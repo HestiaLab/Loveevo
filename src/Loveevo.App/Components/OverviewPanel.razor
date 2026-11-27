@@ -1,0 +1,99 @@
+@using Loveevo.Core.Services
+@using Microsoft.AspNetCore.Components.Web
+@inject LoveevoState State
+@inject BrowserStore Store
+@inject IJSRuntime JS
+@implements IDisposable
+
+<div class="lv-tool-panel overview-panel">
+    <header class="lv-panel-heading"><div><span class="lv-eyebrow">一起走过的日子</span><h2>关系总览</h2></div><Icon Name="chart" Size="22" /></header>
+    <div class="lv-overview-stats">
+        <div><strong>@State.VisibleEvents.Count</strong><span>回忆</span></div>
+        <div><strong>@State.Data.Events.SelectMany(item => item.Photos).Count()</strong><span>照片</span></div>
+        <div><strong>@(_usage is null ? "—" : FormatBytes(_usage.UsageBytes))</strong><span>本机占用</span></div>
+    </div>
+
+    <section class="lv-chart-card">
+        <h3>月度事件趋势</h3>
+        <p class="lv-muted">最近 12 个月</p>
+        <canvas @ref="_treeline" role="img" aria-label="最近 12 个月每月的事件数量柱状图"></canvas>
+        <table class="sr-only"><caption>月度事件数量</caption><thead><tr><th>月份</th><th>数量</th></tr></thead><tbody>@foreach (var item in _monthly){<tr><td>@item.Label</td><td>@item.Value</td></tr>}</tbody></table>
+    </section>
+
+    <section class="lv-chart-card">
+        <h3>阶段分布</h3>
+        <div class="lv-donut-layout"><canvas @ref="_stages" role="img" aria-label="各阶段事件数量分布环形图"></canvas><ul class="lv-chart-legend">@foreach (var item in _stageCounts){<li><span style="background:@item.Color"></span>@item.Label <strong>@item.Value</strong></li>}</ul></div>
+        <table class="sr-only"><caption>阶段事件数量</caption><thead><tr><th>阶段</th><th>数量</th></tr></thead><tbody>@foreach (var item in _stageCounts){<tr><td>@item.Label</td><td>@item.Value</td></tr>}</tbody></table>
+    </section>
+
+    <section class="lv-chart-card">
+        <h3>心情分布</h3>
+        <div class="lv-donut-layout"><canvas @ref="_moods" role="img" aria-label="心情标签出现次数环形图"></canvas><ul class="lv-chart-legend">@foreach (var item in _moodCounts){<li><span style="background:@item.Color"></span>@item.Label <strong>@item.Value</strong></li>}</ul></div>
+        <table class="sr-only"><caption>心情标签次数</caption><thead><tr><th>心情</th><th>次数</th></tr></thead><tbody>@foreach (var item in _moodCounts){<tr><td>@item.Label</td><td>@item.Value</td></tr>}</tbody></table>
+    </section>
+
+    <section class="lv-chart-card">
+        <h3>照片与存储</h3>
+        <p>共 @State.Data.Events.SelectMany(item => item.Photos).Count() 张照片，预计占用 <strong>@(_usage is null ? "—" : FormatBytes(_usage.UsageBytes))</strong>。</p>
+        @if (_usage is not null && _usage.QuotaBytes > 0)
+        {
+            var percent = Math.Min(100, _usage.UsageBytes * 100d / _usage.QuotaBytes);
+            <div class="lv-storage-bar" role="progressbar" aria-valuenow="@((int)percent)" aria-valuemin="0" aria-valuemax="100" aria-label="浏览器存储使用率"><span style="width:@percent%"></span></div>
+            <small class="lv-muted">浏览器可用配额约 @FormatBytes(_usage.QuotaBytes)</small>
+        }
+    </section>
+</div>
+
+@code {
+    private ElementReference _treeline;
+    private ElementReference _stages;
+    private ElementReference _moods;
+    private IJSObjectReference? _module;
+    private StorageUsage? _usage;
+    private List<ChartItem> _monthly = [];
+    private List<ChartItem> _stageCounts = [];
+    private List<ChartItem> _moodCounts = [];
+
+    protected override void OnInitialized() => State.Changed += OnStateChanged;
+    public void Dispose() => State.Changed -= OnStateChanged;
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/loveevo.js");
+            _usage = await Store.GetStorageUsageAsync();
+            BuildData();
+            StateHasChanged();
+            return;
+        }
+        if (_module is null) return;
+        BuildData();
+        await _module.InvokeVoidAsync("drawBarChart", _treeline, _monthly);
+        await _module.InvokeVoidAsync("drawDonutChart", _stages, _stageCounts);
+        await _module.InvokeVoidAsync("drawDonutChart", _moods, _moodCounts);
+    }
+
+    private void BuildData()
+    {
+        var now = DateTime.Today;
+        _monthly = Enumerable.Range(0, 12).Select(offset =>
+        {
+            var date = now.AddMonths(-11 + offset);
+            return new ChartItem($"{date.Month}月", State.VisibleEvents.Count(item => item.OccurredOn.Year == date.Year && item.OccurredOn.Month == date.Month));
+        }).ToList();
+        var palette = new[] { "#d97793", "#d69a72", "#a98ac7", "#e26f8d", "#7fb7a8", "#8aa7d8" };
+        _stageCounts = State.Data.Stages.OrderBy(item => item.SortOrder).Select((stage, index) => new ChartItem(stage.Name, State.VisibleEvents.Count(item => item.StageId == stage.Id), stage.Color)).ToList();
+        _moodCounts = new[] { "甜蜜", "安心", "心动", "紧张", "平淡", "幸福" }.Select((mood, index) => new ChartItem(mood, State.VisibleEvents.Sum(item => item.MoodTags.Count(tag => tag == mood)), palette[index])).Where(item => item.Value > 0).ToList();
+    }
+
+    private static string FormatBytes(long bytes) => bytes switch
+    {
+        >= 1024 * 1024 => $"{bytes / 1024d / 1024d:N1} MB",
+        >= 1024 => $"{bytes / 1024d:N1} KB",
+        _ => $"{bytes} B"
+    };
+
+    private sealed record ChartItem(string Label, int Value, string Color = "#d97793");
+}

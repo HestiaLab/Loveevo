@@ -1,0 +1,29 @@
+{
+  "name": "Loveevo · 我们的关系纪念册",
+  "short_name": "Loveevo",
+  "description": "只保存在本机浏览器里的私密恋爱关系纪念册。",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#fbf7f8",
+  "theme_color": "#c85f82",
+  "lang": "zh-CN",
+  "categories": ["lifestyle", "personal"],
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ]
+}

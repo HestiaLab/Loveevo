@@ -1,0 +1,162 @@
+const { test, expect } = require('@playwright/test');
+const path = require('node:path');
+
+async function skipOnboarding(page) {
+  await page.goto('/');
+  await expect(page.locator('.lv-onboarding, .lv-workspace')).toBeVisible();
+  const skip = page.getByRole('button', { name: '暂时跳过' });
+  if (await skip.isVisible()) await skip.click();
+  await expect(page.locator('.lv-workspace')).toBeVisible();
+}
+
+async function createEvent(page, title) {
+  await page.getByRole('button', { name: '新回忆', exact: true }).first().click();
+  await page.getByLabel('事件标题').fill(title);
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  await expect(page.getByText('已保存到本机。')).toBeVisible();
+  await page.getByRole('button', { name: '关闭', exact: true }).click();
+}
+
+test('onboarding, event lifecycle, photo upload and persistence', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('response', response => {
+    if (response.status() >= 400) errors.push(`${response.status()} ${response.url()}`);
+  });
+  page.on('console', message => {
+    if (message.type() === 'error') errors.push(message.text());
+  });
+
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: '先认识一下你们。' })).toBeVisible();
+  await page.getByLabel('我的称呼').fill('小林');
+  await page.getByLabel('对方的称呼').fill('小周');
+  await page.getByLabel('你们在一起的日子').fill('2026-01-01');
+  await page.getByRole('button', { name: /继续/ }).click();
+
+  await expect(page.getByRole('heading', { name: '记录第一个瞬间。' })).toBeVisible();
+  await page.getByLabel('标题').fill('第一次见面');
+  await page.getByRole('button', { name: '开始我们的故事' }).click();
+
+  await expect(page.getByText('把每一个心动，')).toBeVisible();
+  await expect(page.getByRole('heading', { name: '第一次见面' })).toBeVisible();
+
+  await page.getByRole('button', { name: '新回忆', exact: true }).first().click();
+  await expect(page.getByRole('heading', { name: '记录这一刻' })).toBeVisible();
+  await page.getByLabel('事件标题').fill('一起看海');
+  await page.getByLabel('地点').fill('海边');
+  await page.getByRole('textbox', { name: /^回忆/ }).fill('风吹过来，我们聊了很久。');
+  await page.getByRole('button', { name: /心动/ }).click();
+  await page.locator('input[type=file]').setInputFiles(path.resolve(__dirname, '../../../src/Loveevo.App/wwwroot/icons/icon-192.png'));
+  await expect(page.getByAltText('待保存照片')).toBeVisible();
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  await expect(page.getByText('已保存到本机。')).toBeVisible();
+
+  await page.getByRole('button', { name: '关闭', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '一起看海' })).toBeVisible();
+  await page.getByRole('heading', { name: '一起看海' }).click();
+  await expect(page.getByText('风吹过来，我们聊了很久。')).toBeVisible();
+
+  await page.reload();
+  await page.getByRole('tab', { name: '我们的时间线' }).click();
+  await expect(page.getByRole('heading', { name: '一起看海' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '第一次见面' })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('mobile uses simplified single-column shell', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: '先认识一下你们。' })).toBeVisible();
+  await page.getByRole('button', { name: '暂时跳过' }).click();
+  await expect(page.locator('.lv-mobile-app')).toBeVisible();
+  await expect(page.locator('.lv-mobile-nav')).toBeVisible();
+  await expect(page.locator('.lv-workspace')).toHaveCount(0);
+});
+
+test('unsaved editor close guard supports cancel and discard', async ({ page }) => {
+  await skipOnboarding(page);
+  await page.getByRole('button', { name: '新回忆', exact: true }).first().click();
+  await page.getByLabel('事件标题').fill('未保存的回忆');
+  await page.getByRole('button', { name: '关闭', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '未保存的修改' })).toBeVisible();
+  await page.getByRole('button', { name: '继续编辑' }).click();
+  await expect(page.getByLabel('事件标题')).toHaveValue('未保存的回忆');
+  await page.getByRole('button', { name: '关闭', exact: true }).click();
+  await page.getByRole('button', { name: '放弃修改' }).click();
+  await expect(page.getByRole('heading', { name: '未保存的回忆' })).toHaveCount(0);
+});
+
+test('complete ZIP backup can be exported and restored after clearing data', async ({ page }) => {
+  await skipOnboarding(page);
+  await createEvent(page, '备份测试');
+  await page.getByRole('tab', { name: '备份与设置' }).click();
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: '导出备份' }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/^loveevo-backup-.*\.zip$/);
+  const backupPath = await download.path();
+
+  await page.getByRole('button', { name: '清除全部数据' }).click();
+  await page.getByLabel('请输入“删除全部”以确认').fill('删除全部');
+  await page.getByRole('button', { name: '确认清除全部数据' }).click();
+  await expect(page.getByRole('heading', { name: '先认识一下你们。' })).toBeVisible();
+  await page.getByRole('button', { name: '暂时跳过' }).click();
+  await page.getByRole('tab', { name: '备份与设置' }).click();
+  await page.locator('input[type=file]').setInputFiles(backupPath);
+  await expect(page.getByRole('heading', { name: '备份测试' })).toBeVisible();
+});
+
+test('changes propagate between browser tabs', async ({ context, page }) => {
+  await skipOnboarding(page);
+  const second = await context.newPage();
+  await skipOnboarding(second);
+  await createEvent(page, '跨标签页同步');
+  await expect(second.getByRole('heading', { name: '跨标签页同步' })).toBeVisible();
+  await second.close();
+});
+
+test('custom stages can be created, selected and used for filtering', async ({ page }) => {
+  await skipOnboarding(page);
+  await page.getByRole('button', { name: '新增阶段' }).click();
+  await page.getByLabel('阶段名称').fill('旅行');
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  await expect(page.getByRole('button', { name: /旅行 0 条/ })).toBeVisible();
+
+  await page.getByRole('button', { name: '新回忆', exact: true }).first().click();
+  await page.getByLabel('事件标题').fill('第一次旅行');
+  await page.getByLabel('所属阶段').selectOption({ label: '旅行' });
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  await page.getByRole('button', { name: '关闭', exact: true }).click();
+  await page.getByRole('tab', { name: '我们的时间线' }).click();
+  await page.getByRole('button', { name: /旅行 1 条/ }).click();
+  await expect(page.getByRole('heading', { name: '第一次旅行' })).toBeVisible();
+});
+
+test('privacy mode removes sensitive content and photo bytes from view', async ({ page }) => {
+  await skipOnboarding(page);
+  await page.getByRole('button', { name: '新回忆', exact: true }).first().click();
+  await page.getByLabel('事件标题').fill('隐私测试');
+  await page.getByRole('textbox', { name: /^回忆/ }).fill('这段内容不应该在隐私模式中显示。');
+  await page.locator('input[type=file]').setInputFiles(path.resolve(__dirname, '../../../src/Loveevo.App/wwwroot/icons/icon-192.png'));
+  await expect(page.getByAltText('待保存照片')).toBeVisible();
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  await page.getByRole('button', { name: '关闭', exact: true }).click();
+  await page.getByRole('tab', { name: '我们的时间线' }).click();
+  await page.getByRole('heading', { name: '隐私测试' }).click();
+
+  await page.getByRole('button', { name: '切换隐私模式' }).click();
+  await expect(page.getByRole('tab', { name: '隐私测试' })).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: '回忆已隐藏' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '隐私测试' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '回忆已隐藏' })).toBeVisible();
+  await expect(page.getByText('这段内容不应该在隐私模式中显示。')).toHaveCount(0);
+  await expect(page.locator('.lv-event-detail img')).toHaveCount(0);
+  await page.getByRole('tab', { name: '我们的时间线' }).click();
+  await expect(page.locator('.lv-event-card img')).toHaveCount(0);
+
+  await page.reload();
+  await expect(page.getByRole('tab', { name: '隐私测试' })).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: '回忆已隐藏' })).toBeVisible();
+  await expect(page.getByText('这段内容不应该在隐私模式中显示。')).toHaveCount(0);
+});

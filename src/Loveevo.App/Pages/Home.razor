@@ -1,0 +1,48 @@
+﻿@page "/"
+@using Microsoft.Extensions.Localization
+@using Loveevo.App.Localization
+@inject LoveevoState State
+@inject IStringLocalizer<LoveevoStrings> Text
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<PageTitle>Loveevo · 我们的关系纪念册</PageTitle>
+
+@if (State.IsLoading || !_compactReady)
+{
+    <div class="lv-loading"><div class="lv-loading-mark"><Icon Name="heart" Size="30" /></div><p>@Text["Loading"]</p></div>
+}
+else if (!State.Data.Preferences.OnboardingCompleted)
+{
+    <Onboarding OnCompleted="StateHasChanged" />
+}
+else if (_compact)
+{
+    <MobileApp />
+}
+else
+{
+    <LoveevoWorkspace />
+}
+
+@code {
+    private bool _compact;
+    private bool _compactReady;
+    private IJSObjectReference? _pwaModule;
+
+    protected override async Task OnInitializedAsync()
+    {
+        State.Changed += OnStateChanged;
+        _pwaModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/pwa.js");
+        _compact = await _pwaModule.InvokeAsync<bool>("isCompact");
+        _compactReady = true;
+    }
+
+    private void OnStateChanged() => _ = InvokeAsync(StateHasChanged);
+
+    public async ValueTask DisposeAsync()
+    {
+        State.Changed -= OnStateChanged;
+        if (_pwaModule is not null) await _pwaModule.DisposeAsync();
+    }
+}

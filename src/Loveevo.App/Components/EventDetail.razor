@@ -1,0 +1,94 @@
+@using Loveevo.App.Services
+@inject LoveevoState State
+@inject DialogService Dialogs
+@implements IDisposable
+
+<article class="lv-event-detail">
+    @if (_item is null)
+    {
+        <div class="lv-empty-state">
+            <Icon Name="heart" Size="34" />
+            <h1>这条回忆已经不在了</h1>
+            <p>它可能已被删除或移动到了回收站。</p>
+        </div>
+    }
+    else
+    {
+        var stage = State.Data.Stages.FirstOrDefault(item => item.Id == _item.StageId);
+        <header class="lv-detail-hero">
+            <div class="lv-detail-hero-copy">
+                <span class="lv-eyebrow">@_item.OccurredOn.ToString("yyyy 年 M 月 d 日")</span>
+                <h1>@(State.Data.Preferences.PrivacyMode ? "回忆已隐藏" : _item.Title)</h1>
+                <div class="lv-detail-meta">
+                    @if (stage is not null)
+                    {
+                        <span class="lv-stage-pill" style="--stage-color:@stage.Color"><Icon Name="@stage.IconKey" Size="14" /> @stage.Name</span>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(_item.Location))
+                    {
+                        <span>@(State.Data.Preferences.PrivacyMode ? "地点已隐藏" : _item.Location)</span>
+                    }
+                </div>
+            </div>
+            <div class="lv-detail-actions">
+                <button type="button" class="lv-button ghost" disabled="@State.Data.Preferences.PrivacyMode" @onclick="OnEdit"><Icon Name="edit" Size="16" /> 编辑</button>
+                <button type="button" class="lv-button ghost danger" @onclick="DeleteAsync"><Icon Name="trash" Size="16" /> 删除</button>
+            </div>
+        </header>
+
+        @if (_item.Photos.Count > 0)
+        {
+            <PhotoGallery Photos="@_item.Photos" />
+        }
+
+        <section class="lv-detail-story">
+            <h2>这一刻</h2>
+            <p>@(State.Data.Preferences.PrivacyMode ? "隐私模式已隐藏这段回忆。" : _item.Story)</p>
+        </section>
+
+        @if (!State.Data.Preferences.PrivacyMode && _item.MoodTags.Count > 0)
+        {
+            <section class="lv-detail-moods">
+                <h2>当天的心情</h2>
+                <div class="lv-mood-picker">
+                    @foreach (var mood in _item.MoodTags)
+                    {
+                        <span class="lv-mood-chip selected">@mood</span>
+                    }
+                </div>
+            </section>
+        }
+    }
+</article>
+
+@code {
+    [Parameter] public string EventId { get; set; } = string.Empty;
+    [Parameter] public EventCallback OnEdit { get; set; }
+    [Parameter] public EventCallback OnDeleted { get; set; }
+
+    private RelationshipEvent? _item;
+
+    protected override void OnInitialized() => State.Changed += OnStateChanged;
+    public void Dispose() => State.Changed -= OnStateChanged;
+
+    protected override void OnParametersSet()
+    {
+        _item = State.Data.Events.FirstOrDefault(item => item.Id == EventId && item.DeletedAt is null);
+    }
+
+    private void OnStateChanged()
+    {
+        OnParametersSet();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (_item is null) return;
+        var label = State.Data.Preferences.PrivacyMode ? "这条回忆" : _item.Title;
+        var confirmed = await Dialogs.ConfirmAsync("移到回收站", $"确定删除“{label}”吗？之后可以从回收站恢复。", "移到回收站", destructive: true);
+        if (!confirmed) return;
+        await State.MoveToTrashAsync(_item.Id);
+        await OnDeleted.InvokeAsync();
+    }
+}

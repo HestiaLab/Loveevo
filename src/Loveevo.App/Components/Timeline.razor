@@ -1,0 +1,180 @@
+@inject LoveevoState State
+@inject TimelineFilterState Filters
+@implements IDisposable
+
+<div class="lv-timeline @(State.Data.Preferences.PrivacyMode ? "privacy-on" : "")">
+    <header class="lv-timeline-hero">
+        <div class="lv-hero-glow"></div>
+        <div class="lv-timeline-hero-content">
+            <span class="lv-eyebrow">@(State.Data.Preferences.PrivacyMode ? "我们的故事" : $"{State.Data.Profile.PartnerOneName} & {State.Data.Profile.PartnerTwoName} 的故事")</span>
+            @if (State.Data.Preferences.PrivacyMode)
+            {
+                <h1>隐私模式<br />已开启。</h1>
+                <p class="lv-days-together">回忆内容已隐藏</p>
+            }
+            else
+            {
+                <h1>把每一个心动，<br />留在时间里。</h1>
+                if (State.Data.Profile.StartDate is not null)
+                {
+                    var days = Math.Max(0, State.Today.DayNumber - State.Data.Profile.StartDate.Value.DayNumber + 1);
+                    <p class="lv-days-together">在一起第 <strong>@days</strong> 天</p>
+                }
+            }
+            <button type="button" class="lv-button primary hero-action" @onclick="OnNew"><Icon Name="plus" Size="18" /> 记录新的回忆</button>
+        </div>
+        <div class="lv-hero-stats">
+            <div><strong>@State.VisibleEvents.Count</strong><span>条回忆</span></div>
+            <div><strong>@State.Data.Events.SelectMany(item => item.Photos).Count()</strong><span>张照片</span></div>
+            <div><strong>@State.Data.Stages.Count</strong><span>个阶段</span></div>
+        </div>
+    </header>
+
+    <div class="lv-timeline-toolbar">
+        <div>
+            <h2>我们的时间线</h2>
+            <p class="lv-muted">@FilterDescription</p>
+        </div>
+        <div class="lv-toolbar-actions">
+            <button type="button" class="lv-button ghost" @onclick="ToggleSort"><Icon Name="filter" Size="16" /> @(Filters.Sort == "ascending" ? "从早到晚" : "从晚到早")</button>
+            <button type="button" class="lv-button primary" @onclick="OnNew"><Icon Name="plus" Size="16" /> 新回忆</button>
+        </div>
+    </div>
+
+    @if (_events.Count == 0)
+    {
+        <div class="lv-empty-state">
+            <Icon Name="sparkles" Size="36" />
+            <h3>@(State.VisibleEvents.Count == 0 ? "故事才刚刚开始" : "没有符合条件的回忆")</h3>
+            <p>@(State.VisibleEvents.Count == 0 ? "记录第一次见面、第一次牵手，或任何你想留住的瞬间。" : "试试调整阶段、日期或心情筛选。")</p>
+            @if (State.VisibleEvents.Count == 0)
+            {
+                <button type="button" class="lv-button primary" @onclick="OnNew">写下第一条回忆</button>
+            }
+            else
+            {
+                <button type="button" class="lv-button ghost" @onclick="ClearFilters">清除筛选</button>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="lv-timeline-list">
+            @foreach (var item in _events)
+            {
+                var stage = State.Data.Stages.FirstOrDefault(candidate => candidate.Id == item.StageId);
+                var cover = item.Photos.OrderBy(photo => photo.SortOrder).FirstOrDefault(photo => photo.IsCover)
+                    ?? item.Photos.OrderBy(photo => photo.SortOrder).FirstOrDefault();
+                <article class="lv-event-card" @onclick="() => OnOpen.InvokeAsync(item.Id)" tabindex="0" @onkeydown="e => OnCardKey(e, item.Id)">
+                    <div class="lv-event-date">
+                        <strong>@item.OccurredOn.Day</strong>
+                        <span>@item.OccurredOn.ToString("MMM")</span>
+                        <small>@item.OccurredOn.ToString("yyyy")</small>
+                    </div>
+                    <div class="lv-event-card-body">
+                        <div class="lv-event-card-copy">
+                            <div class="lv-event-card-meta">
+                                @if (stage is not null)
+                                {
+                                    <span class="lv-stage-pill" style="--stage-color:@stage.Color"><Icon Name="@stage.IconKey" Size="13" /> @stage.Name</span>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(item.Location))
+                                {
+                                    <span class="lv-location">@(State.Data.Preferences.PrivacyMode ? "地点已隐藏" : item.Location)</span>
+                                }
+                            </div>
+                            <h3>@(State.Data.Preferences.PrivacyMode ? "回忆已隐藏" : item.Title)</h3>
+                            <p>@(State.Data.Preferences.PrivacyMode ? "退出隐私模式后查看这段回忆。" : Truncate(item.Story, 92))</p>
+                            @if (!State.Data.Preferences.PrivacyMode && item.MoodTags.Count > 0)
+                            {
+                                <div class="lv-card-moods">@string.Join(" · ", item.MoodTags)</div>
+                            }
+                        </div>
+                        <div class="lv-event-card-cover">
+                            <CoverImage Photo="@cover" />
+                            @if (item.Photos.Count > 1)
+                            {
+                                <span class="lv-photo-count"><Icon Name="image" Size="13" /> @item.Photos.Count</span>
+                            }
+                        </div>
+                    </div>
+                </article>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public EventCallback OnNew { get; set; }
+    [Parameter] public EventCallback<string> OnOpen { get; set; }
+
+    private IReadOnlyList<RelationshipEvent> _events = [];
+
+    private string FilterDescription
+    {
+        get
+        {
+            var parts = new List<string>();
+            if (Filters.StageId is not null)
+            {
+                var stage = State.Data.Stages.FirstOrDefault(item => item.Id == Filters.StageId);
+                if (stage is not null) parts.Add(stage.Name);
+            }
+            if (Filters.From is not null || Filters.To is not null)
+                parts.Add("指定日期范围");
+            if (Filters.Moods.Count > 0) parts.Add(string.Join("、", Filters.Moods));
+            return parts.Count == 0 ? "所有值得记住的瞬间" : string.Join(" · ", parts);
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        State.Changed += OnStateChanged;
+        Filters.Changed += OnFilterChanged;
+        Rebuild();
+    }
+
+    protected override void OnParametersSet() => Rebuild();
+
+    private void OnStateChanged() => InvokeAsync(() =>
+    {
+        Rebuild();
+        StateHasChanged();
+    });
+
+    private void OnFilterChanged() => InvokeAsync(() =>
+    {
+        Rebuild();
+        StateHasChanged();
+    });
+
+    private void Rebuild()
+    {
+        var query = State.VisibleEvents.Where(Filters.Matches);
+        query = Filters.Sort == "ascending"
+            ? query.OrderBy(item => item.OccurredOn).ThenBy(item => item.CreatedAt)
+            : query.OrderByDescending(item => item.OccurredOn).ThenByDescending(item => item.CreatedAt);
+        _events = query.ToList();
+    }
+
+    private void ToggleSort()
+    {
+        Filters.Sort = Filters.Sort == "ascending" ? "descending" : "ascending";
+        State.Data.Preferences.TimelineSort = Filters.Sort;
+        Filters.NotifyChanged();
+    }
+
+    private void ClearFilters() => Filters.Clear();
+
+    public void Dispose()
+    {
+        State.Changed -= OnStateChanged;
+        Filters.Changed -= OnFilterChanged;
+    }
+
+    private static string Truncate(string value, int length) =>
+        string.IsNullOrWhiteSpace(value) ? "这一刻，值得被记住。" : value.Length <= length ? value : value[..length] + "…";
+
+    private Task OnCardKey(KeyboardEventArgs args, string id) =>
+        args.Key == "Enter" || args.Key == " " ? OnOpen.InvokeAsync(id) : Task.CompletedTask;
+}

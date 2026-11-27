@@ -65,13 +65,13 @@ async function blobToBase64(blob) {
     return bytesToBase64(new Uint8Array(await blob.arrayBuffer()));
 }
 
-export async function loadData() {
+async function loadData() {
     const database = await openDatabase();
     const transaction = database.transaction('meta', 'readonly');
     return await requestResult(transaction.objectStore('meta').get(META_KEY)) ?? null;
 }
 
-export async function commitData(data, photosToPut, photosToDelete, replaceAll, expectedRevision, layoutToSave) {
+async function commitData(data, photosToPut, photosToDelete, replaceAll, expectedRevision, layoutToSave) {
     const run = async () => {
         const database = await openDatabase();
         const readTransaction = database.transaction('meta', 'readonly');
@@ -106,14 +106,14 @@ export async function commitData(data, photosToPut, photosToDelete, replaceAll, 
     return navigator.locks ? navigator.locks.request('loveevo-write', run) : run();
 }
 
-export async function getPhotoBytes(photoId) {
+async function getPhotoBytes(photoId) {
     const database = await openDatabase();
     const transaction = database.transaction('photos', 'readonly');
     const record = await requestResult(transaction.objectStore('photos').get(photoId));
     return record ? await blobToBase64(record.blob) : null;
 }
 
-export async function getPhotoDataUrl(photoId) {
+async function getPhotoDataUrl(photoId) {
     const database = await openDatabase();
     const transaction = database.transaction('photos', 'readonly');
     const record = await requestResult(transaction.objectStore('photos').get(photoId));
@@ -126,26 +126,26 @@ export async function getPhotoDataUrl(photoId) {
     });
 }
 
-export async function getStorageUsage() {
+async function getStorageUsage() {
     if (!navigator.storage?.estimate) return { usageBytes: 0, quotaBytes: 0 };
     const estimate = await navigator.storage.estimate();
     return { usageBytes: estimate.usage ?? 0, quotaBytes: estimate.quota ?? 0 };
 }
 
-export async function getLayout() {
+async function getLayout() {
     const database = await openDatabase();
     const transaction = database.transaction('meta', 'readonly');
     return await requestResult(transaction.objectStore('meta').get(LAYOUT_KEY)) ?? null;
 }
 
-export async function saveLayout(xml) {
+async function saveLayout(xml) {
     const database = await openDatabase();
     const transaction = database.transaction('meta', 'readwrite');
     transaction.objectStore('meta').put(xml, LAYOUT_KEY);
     await transactionDone(transaction);
 }
 
-export async function clearAll() {
+async function clearAll() {
     const run = async () => {
         const database = await openDatabase();
         const transaction = database.transaction(['meta', 'photos'], 'readwrite');
@@ -157,7 +157,7 @@ export async function clearAll() {
     return navigator.locks ? navigator.locks.request('loveevo-write', run) : run();
 }
 
-export async function compressImage(base64, contentType, maxDimension = 1600) {
+async function compressImage(base64, contentType, maxDimension = 1600) {
     const blob = new Blob([base64ToBytes(base64)], { type: contentType });
     const bitmap = await createImageBitmap(blob, { imageOrientation: 'from-image' });
     const scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height));
@@ -186,7 +186,7 @@ export async function compressImage(base64, contentType, maxDimension = 1600) {
     };
 }
 
-export function downloadFile(base64, fileName, contentType) {
+function downloadFile(base64, fileName, contentType) {
     const bytes = base64ToBytes(base64);
     const url = URL.createObjectURL(new Blob([bytes], { type: contentType }));
     const anchor = document.createElement('a');
@@ -198,7 +198,7 @@ export function downloadFile(base64, fileName, contentType) {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export function connect(callback) {
+function connect(callback) {
     const channel = 'BroadcastChannel' in window ? new BroadcastChannel('loveevo') : null;
     if (channel) channel.onmessage = event => callback.invokeMethodAsync('OnDataChanged', event.data);
     const onStorage = event => {
@@ -213,7 +213,7 @@ export function connect(callback) {
     };
 }
 
-export function setTheme(theme) {
+function setTheme(theme) {
     const root = document.documentElement;
     root.dataset.theme = theme === 'system'
         ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
@@ -228,14 +228,14 @@ export function setTheme(theme) {
     media.addEventListener('change', listener);
 }
 
-export function reloadForUpdate() {
+function reloadForUpdate() {
     navigator.serviceWorker?.getRegistrations().then(registrations => {
         for (const registration of registrations) registration.update();
     });
     window.location.reload();
 }
 
-export function setBeforeUnload(enabled) {
+function setBeforeUnload(enabled) {
     if (enabled) {
         window.onbeforeunload = event => {
             event.preventDefault();
@@ -246,7 +246,7 @@ export function setBeforeUnload(enabled) {
     }
 }
 
-export function enhanceAccessibility() {
+function enhanceAccessibility() {
     const update = () => {
         document.querySelectorAll('.atlas-v2-splitter[role="separator"]').forEach(element => {
             if (element.hasAttribute('aria-valuenow')) return;
@@ -261,7 +261,7 @@ export function enhanceAccessibility() {
     return { dispose: () => observer.disconnect() };
 }
 
-export function drawBarChart(canvas, items, color = '#d97793') {
+function drawBarChart(canvas, items, color = '#d97793') {
     const context = canvas.getContext('2d');
     if (!context || items.length === 0) return;
     const ratio = window.devicePixelRatio || 1;
@@ -313,7 +313,7 @@ export function drawBarChart(canvas, items, color = '#d97793') {
     });
 }
 
-export function drawDonutChart(canvas, items) {
+function drawDonutChart(canvas, items) {
     const context = canvas.getContext('2d');
     if (!context) return;
     const ratio = window.devicePixelRatio || 1;
@@ -355,3 +355,25 @@ export function drawDonutChart(canvas, items) {
     context.font = '11px system-ui, sans-serif';
     context.fillText('条记录', centerX, centerY + 16);
 }
+
+window.getLoveevo = () => window.loveevo;
+
+window.loveevo = {
+    loadData,
+    commitData,
+    getPhotoBytes,
+    getPhotoDataUrl,
+    getStorageUsage,
+    getLayout,
+    saveLayout,
+    clearAll,
+    compressImage,
+    downloadFile,
+    connect,
+    setTheme,
+    reloadForUpdate,
+    setBeforeUnload,
+    enhanceAccessibility,
+    drawBarChart,
+    drawDonutChart
+};

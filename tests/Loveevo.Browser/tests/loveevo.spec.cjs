@@ -3,10 +3,10 @@ const path = require('node:path');
 
 async function skipOnboarding(page) {
   await page.goto('/');
-  await expect(page.locator('.lv-onboarding, .lv-workspace')).toBeVisible();
+  await expect(page.locator('.lv-onboarding, .lv-workspace, .lv-mobile-app')).toBeVisible();
   const skip = page.getByRole('button', { name: '暂时跳过' });
   if (await skip.isVisible()) await skip.click();
-  await expect(page.locator('.lv-workspace')).toBeVisible();
+  await expect(page.locator('.lv-workspace, .lv-mobile-app')).toBeVisible();
 }
 
 async function createEvent(page, title) {
@@ -114,6 +114,18 @@ test('changes propagate between browser tabs', async ({ context, page }) => {
   await createEvent(page, '跨标签页同步');
   await expect(second.getByRole('heading', { name: '跨标签页同步' })).toBeVisible();
   await second.close();
+});
+
+test('embedded browsers without PWA APIs can still load and save', async ({ context, page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await context.addInitScript(() => {
+    delete window.BroadcastChannel;
+    Object.defineProperty(navigator, 'serviceWorker', { value: undefined, configurable: true });
+    Object.defineProperty(navigator, 'locks', { value: undefined, configurable: true });
+  });
+  await skipOnboarding(page);
+  await createEvent(page, '内置浏览器记录');
+  await expect(page.getByRole('heading', { name: '内置浏览器记录' })).toBeVisible();
 });
 
 test('custom stages can be created, selected and used for filtering', async ({ page }) => {

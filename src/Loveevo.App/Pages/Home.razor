@@ -33,7 +33,7 @@ else
     protected override async Task OnInitializedAsync()
     {
         State.Changed += OnStateChanged;
-        _pwaModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/pwa.js");
+        _pwaModule = await JS.InvokeAsync<IJSObjectReference>("getLoveevoPwa");
         _compact = await _pwaModule.InvokeAsync<bool>("isCompact");
         _compactReady = true;
     }

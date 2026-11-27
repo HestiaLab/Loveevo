@@ -22,7 +22,7 @@ public sealed class BeforeUnloadGuard(IJSRuntime js)
     {
         try
         {
-            _module ??= await js.InvokeAsync<IJSObjectReference>("import", "./js/loveevo.js");
+            _module ??= await js.InvokeAsync<IJSObjectReference>("getLoveevo");
             await _module.InvokeVoidAsync("setBeforeUnload", enabled);
         }
         catch (JSException)

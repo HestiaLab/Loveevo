@@ -118,7 +118,7 @@
         var preferences = System.Text.Json.JsonSerializer.Deserialize<AppPreferences>(System.Text.Json.JsonSerializer.Serialize(State.Data.Preferences))!;
         preferences.Theme = theme;
         await State.SavePreferencesAsync(preferences);
-        _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/loveevo.js");
+        _module ??= await JS.InvokeAsync<IJSObjectReference>("getLoveevo");
         await _module.InvokeVoidAsync("setTheme", theme);
     }
 
@@ -135,7 +135,7 @@
         try
         {
             var result = await Backup.ExportAsync();
-            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/loveevo.js");
+            _module ??= await JS.InvokeAsync<IJSObjectReference>("getLoveevo");
             await _module.InvokeVoidAsync("downloadFile", Convert.ToBase64String(result.Data), result.FileName, "application/zip");
             _status = "完整备份已导出。";
         }
@@ -157,7 +157,7 @@
                 if (!confirmed) return;
             }
             var safety = await Backup.ExportAsync();
-            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/loveevo.js");
+            _module ??= await JS.InvokeAsync<IJSObjectReference>("getLoveevo");
             await _module.InvokeVoidAsync("downloadFile", Convert.ToBase64String(safety.Data), safety.FileName, "application/zip");
             await using var stream = file.OpenReadStream(256L * 1024 * 1024);
             using var buffer = new MemoryStream();

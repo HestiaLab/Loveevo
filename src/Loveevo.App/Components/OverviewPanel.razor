@@ -62,7 +62,7 @@
     {
         if (firstRender)
         {
-            _module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/loveevo.js");
+            _module = await JS.InvokeAsync<IJSObjectReference>("getLoveevo");
             _usage = await Store.GetStorageUsageAsync();
             BuildData();
             StateHasChanged();

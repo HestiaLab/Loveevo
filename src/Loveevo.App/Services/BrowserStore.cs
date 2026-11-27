@@ -22,7 +22,7 @@ public sealed class BrowserStore : ILoveevoStore, IAsyncDisposable
     public event Action? DataChanged;
 
     private async ValueTask<IJSObjectReference> GetModuleAsync() =>
-        _module ??= await _js.InvokeAsync<IJSObjectReference>("import", "./js/loveevo.js");
+        _module ??= await _js.InvokeAsync<IJSObjectReference>("getLoveevo");
 
     public async Task<LoveevoData> LoadAsync(CancellationToken cancellationToken = default)
     {

@@ -1,8 +1,8 @@
-export function isCompact() {
+function isCompact() {
     return window.matchMedia('(max-width: 900px)').matches;
 }
 
-export async function register(callback) {
+async function register(callback) {
     if (!('serviceWorker' in navigator)) return;
     try {
         const registration = await navigator.serviceWorker.register('./service-worker.js', { updateViaCache: 'none' });
@@ -20,8 +20,16 @@ export async function register(callback) {
     }
 }
 
-export function applyUpdate() {
+function applyUpdate() {
     navigator.serviceWorker?.getRegistration().then(registration => {
         registration?.waiting?.postMessage({ type: 'SKIP_WAITING' });
     });
 }
+
+window.getLoveevoPwa = () => window.loveevoPwa;
+
+window.loveevoPwa = {
+    isCompact,
+    register,
+    applyUpdate
+};

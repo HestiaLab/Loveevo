@@ -31,7 +31,7 @@ public sealed class ImageService(IJSRuntime js)
     }
 
     private async ValueTask<IJSObjectReference> GetModuleAsync() =>
-        _module ??= await js.InvokeAsync<IJSObjectReference>("import", "./js/loveevo.js");
+        _module ??= await js.InvokeAsync<IJSObjectReference>("getLoveevo");
 
     private sealed class CompressedImage
     {

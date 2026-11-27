@@ -69,7 +69,7 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender) return;
-        _jsModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/loveevo.js");
+        _jsModule = await JS.InvokeAsync<IJSObjectReference>("getLoveevo");
         _a11yConnection = await _jsModule.InvokeAsync<IJSObjectReference>("enhanceAccessibility");
     }
 

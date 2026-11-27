@@ -35,8 +35,8 @@ else
         await State.InitializeAsync();
         await Store.StartListeningAsync();
         State.Changed += OnStateChanged;
-        _pwaModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/pwa.js");
-        _themeModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/loveevo.js");
+        _pwaModule = await JS.InvokeAsync<IJSObjectReference>("getLoveevoPwa");
+        _themeModule = await JS.InvokeAsync<IJSObjectReference>("getLoveevo");
         await _themeModule.InvokeVoidAsync("setTheme", State.Data.Preferences.Theme);
         _pwaCallback = DotNetObjectReference.Create(new PwaCallback(() => _ = InvokeAsync(() => { _updateReady = true; StateHasChanged(); })));
         await _pwaModule.InvokeVoidAsync("register", _pwaCallback);

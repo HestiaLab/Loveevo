@@ -21,7 +21,6 @@
                     <p class="lv-days-together">在一起第 <strong>@days</strong> 天</p>
                 }
             }
-            <button type="button" class="lv-button primary hero-action" @onclick="OnNew"><Icon Name="plus" Size="18" /> 记录新的回忆</button>
         </div>
         <div class="lv-hero-stats">
             <div><strong>@State.VisibleEvents.Count</strong><span>条回忆</span></div>
@@ -37,7 +36,10 @@
         </div>
         <div class="lv-toolbar-actions">
             <button type="button" class="lv-button ghost" @onclick="ToggleSort"><Icon Name="filter" Size="16" /> @(Filters.Sort == "ascending" ? "从早到晚" : "从晚到早")</button>
-            <button type="button" class="lv-button primary" @onclick="OnNew"><Icon Name="plus" Size="16" /> 新回忆</button>
+            @if (_events.Count > 0)
+            {
+                <button type="button" class="lv-button primary" @onclick="OnNew"><Icon Name="plus" Size="16" /> 记录新的回忆</button>
+            }
         </div>
     </div>
 

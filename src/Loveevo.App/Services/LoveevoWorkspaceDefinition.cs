@@ -8,14 +8,15 @@ namespace Loveevo.App.Services;
 
 public static class LoveevoWorkspaceDefinition
 {
-    public const string WorkspaceId = "loveevo-workspace";
+    public const string WorkspaceId = "loveevo-workspace-v2";
     public const string DocumentGroupId = "documents";
-    public const string TimelineItemId = "timeline";
     public const string ToolGroupId = "tools";
+    public const string OverviewItemId = "overview";
+    public const string SettingsItemId = "settings";
 
     public static readonly string[] ContentKinds =
     [
-        "loveevo-timeline", "loveevo-stages", "loveevo-filters", "loveevo-overview", "loveevo-settings",
+        "loveevo-stages", "loveevo-filters", "loveevo-overview", "loveevo-settings",
         "loveevo-event-detail", "loveevo-event-editor"
     ];
 
@@ -24,18 +25,10 @@ public static class LoveevoWorkspaceDefinition
         var tools = new[]
         {
             Tool("stages", "loveevo-stages", "阶段", "layers"),
-            Tool("filters", "loveevo-filters", "筛选", "filter"),
-            Tool("overview", "loveevo-overview", "关系总览", "chart"),
-            Tool("settings", "loveevo-settings", "备份与设置", "settings")
+            Tool("filters", "loveevo-filters", "筛选", "filter")
         };
-        var timeline = new DockItem(
-            new DockItemId(TimelineItemId),
-            DockItemKind.Document,
-            new ContentReference("loveevo-timeline", "timeline"),
-            DockItemCapabilityPresets.Document,
-            "我们的时间线",
-            "heart",
-            new DocumentState(isPinned: true, isPreview: false));
+        var overview = Document(OverviewItemId, "loveevo-overview", "关系总览", "chart");
+        var settings = Document(SettingsItemId, "loveevo-settings", "备份与设置", "settings");
 
         var toolGroup = new GroupNode(
             new LayoutNodeId(ToolGroupId),
@@ -50,8 +43,8 @@ public static class LoveevoWorkspaceDefinition
             DockItemKind.Document,
             GroupRetentionPolicy.Persistent,
             GroupVisibility.Expanded,
-            [timeline.Id],
-            timeline.Id);
+            [overview.Id, settings.Id],
+            overview.Id);
         var root = new SplitNode(
             new LayoutNodeId("root"),
             SplitAxis.InlineChildren,
@@ -64,7 +57,7 @@ public static class LoveevoWorkspaceDefinition
             new WorkspaceId(WorkspaceId),
             root.Id,
             [root, toolGroup, documentGroup],
-            [.. tools, timeline],
+            [.. tools, overview, settings],
             [new ToolBarState(LogicalSide.InlineStart, ToolBarVisibility.Expanded)],
             [new ToolBarOrderState(LogicalRegion.InlineStartUpper, tools.Select(item => item.Id).ToArray())]);
     }
@@ -77,4 +70,14 @@ public static class LoveevoWorkspaceDefinition
             DockItemCapabilityPresets.Tool,
             title,
             icon);
+
+    private static DockItem Document(string id, string kind, string title, string icon) =>
+        new(
+            new DockItemId(id),
+            DockItemKind.Document,
+            new ContentReference(kind, id),
+            DockItemCapabilityPresets.Document,
+            title,
+            icon,
+            new DocumentState(isPinned: true, isPreview: false));
 }

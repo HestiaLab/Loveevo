@@ -1,27 +1,16 @@
 @inject LoveevoState State
 @inject TimelineFilterState Filters
+@inject NavigationManager Navigation
 
 <div class="lv-mobile-app @(State.Data.Preferences.PrivacyMode ? "privacy-on" : "")">
     <header class="lv-mobile-header">
-        <div class="lv-brand"><span class="lv-brand-mark"><Icon Name="heart" Size="17" /></span><strong>Loveevo</strong></div>
+        <div class="lv-brand"><NavLink href="/" class="lv-mobile-brand"><span class="lv-brand-mark"><Icon Name="heart" Size="17" /></span><strong>Loveevo</strong></NavLink><span class="lv-mobile-page-label">工作台</span></div>
         <div class="lv-topbar-actions">
             <button type="button" class="lv-icon-button" aria-label="切换隐私模式" @onclick="TogglePrivacyAsync"><Icon Name="@(State.Data.Preferences.PrivacyMode ? "eye-off" : "lock")" Size="18" /></button>
-            <button type="button" class="lv-button primary small" @onclick="NewEvent"><Icon Name="plus" Size="15" /> 新回忆</button>
         </div>
     </header>
 
-    @if (_view == "timeline")
-    {
-        <div class="lv-mobile-stage-strip">
-            <button type="button" class="@(Filters.StageId is null ? "active" : "")" @onclick="() => SelectStage(null)">全部</button>
-            @foreach (var stage in State.Data.Stages.OrderBy(item => item.SortOrder))
-            {
-                <button type="button" class="@(Filters.StageId == stage.Id ? "active" : "")" @onclick="() => SelectStage(stage.Id)">@stage.Name</button>
-            }
-        </div>
-        <main class="lv-mobile-content"><Timeline OnNew="NewEvent" OnOpen="OpenDetail" /></main>
-    }
-    else if (_view == "stages")
+    @if (_view == "stages")
     {
         <main class="lv-mobile-content tool-content"><StagePanel /></main>
     }
@@ -35,7 +24,7 @@
     }
 
     <nav class="lv-mobile-nav" aria-label="主导航">
-        <button type="button" class="@(_view == "timeline" ? "active" : "")" @onclick='() => _view = "timeline"'><Icon Name="heart" Size="20" /><span>时间线</span></button>
+        <button type="button" @onclick='() => Navigation.NavigateTo("/")'><Icon Name="heart" Size="20" /><span>时间线</span></button>
         <button type="button" class="@(_view == "stages" ? "active" : "")" @onclick='() => _view = "stages"'><Icon Name="layers" Size="20" /><span>阶段</span></button>
         <button type="button" class="@(_view == "overview" ? "active" : "")" @onclick='() => _view = "overview"'><Icon Name="chart" Size="20" /><span>总览</span></button>
         <button type="button" class="@(_view == "settings" ? "active" : "")" @onclick='() => _view = "settings"'><Icon Name="settings" Size="20" /><span>设置</span></button>
@@ -52,11 +41,30 @@
 </div>
 
 @code {
-    private string _view = "timeline";
+    [Parameter] public string? InitialEventId { get; set; }
+    [Parameter] public bool InitialNewEvent { get; set; }
+
+    private string _view = "stages";
     private string? _detailId;
     private bool _editorOpen;
     private string? _editorEventId;
     private string _editorWorkspaceId = "mobile-" + Guid.NewGuid().ToString("N");
+    private bool _initialEventApplied;
+    private bool _initialNewApplied;
+
+    protected override void OnParametersSet()
+    {
+        if (!_initialEventApplied && !string.IsNullOrWhiteSpace(InitialEventId))
+        {
+            _detailId = InitialEventId;
+            _initialEventApplied = true;
+        }
+        if (!_initialNewApplied && InitialNewEvent)
+        {
+            NewEvent();
+            _initialNewApplied = true;
+        }
+    }
 
     private void SelectStage(string? stageId) { Filters.StageId = stageId; Filters.NotifyChanged(); }
     private void OpenDetail(string eventId) => _detailId = eventId;

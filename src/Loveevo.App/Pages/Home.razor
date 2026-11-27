@@ -2,47 +2,60 @@
 @using Microsoft.Extensions.Localization
 @using Loveevo.App.Localization
 @inject LoveevoState State
+@inject TimelineFilterState Filters
 @inject IStringLocalizer<LoveevoStrings> Text
-@inject IJSRuntime JS
-@implements IAsyncDisposable
+@inject NavigationManager Navigation
+@implements IDisposable
 
 <PageTitle>Loveevo · 我们的关系纪念册</PageTitle>
 
-@if (State.IsLoading || !_compactReady)
-{
-    <div class="lv-loading"><div class="lv-loading-mark"><Icon Name="heart" Size="30" /></div><p>@Text["Loading"]</p></div>
-}
-else if (!State.Data.Preferences.OnboardingCompleted)
+@if (!State.Data.Preferences.OnboardingCompleted)
 {
     <Onboarding OnCompleted="StateHasChanged" />
 }
-else if (_compact)
-{
-    <MobileApp />
-}
 else
 {
-    <LoveevoWorkspace />
+<div class="lv-timeline-page @(State.Data.Preferences.PrivacyMode ? "privacy-on" : "")">
+    <header class="lv-page-header">
+        <div class="lv-brand"><span class="lv-brand-mark"><Icon Name="heart" Size="18" /></span><strong>@Text["AppName"]</strong><span>@Text["AppTagline"]</span></div>
+        <nav class="lv-page-nav" aria-label="主导航">
+            <NavLink href="/" Match="NavLinkMatch.All" class="active"><Icon Name="heart" Size="15" /> 时间线</NavLink>
+            <NavLink href="/workspace"><Icon Name="layers" Size="15" /> 工作台</NavLink>
+        </nav>
+        <button type="button" class="lv-icon-button" title="@(State.Data.Preferences.PrivacyMode ? "退出隐私模式" : "开启隐私模式")" aria-label="@Text["PrivacyToggle"]" @onclick="TogglePrivacyAsync"><Icon Name="@(State.Data.Preferences.PrivacyMode ? "eye-off" : "lock")" Size="18" /></button>
+    </header>
+
+    <div class="lv-mobile-stage-strip lv-timeline-stage-strip">
+        <button type="button" class="@(Filters.StageId is null ? "active" : "")" @onclick="() => SelectStage(null)">全部</button>
+        @foreach (var stage in State.Data.Stages.OrderBy(item => item.SortOrder))
+        {
+            <button type="button" class="@(Filters.StageId == stage.Id ? "active" : "")" @onclick="() => SelectStage(stage.Id)">@stage.Name</button>
+        }
+    </div>
+
+    <main>
+        <Timeline OnNew="NewEvent" OnOpen="OpenEvent" />
+    </main>
+</div>
 }
 
 @code {
-    private bool _compact;
-    private bool _compactReady;
-    private IJSObjectReference? _pwaModule;
+    protected override void OnInitialized() => State.Changed += OnStateChanged;
+    public void Dispose() => State.Changed -= OnStateChanged;
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
 
-    protected override async Task OnInitializedAsync()
+    private void NewEvent() => Navigation.NavigateTo("/workspace?new=1");
+    private void OpenEvent(string eventId) => Navigation.NavigateTo($"/workspace?event={Uri.EscapeDataString(eventId)}");
+    private void SelectStage(string? stageId)
     {
-        State.Changed += OnStateChanged;
-        _pwaModule = await JS.InvokeAsync<IJSObjectReference>("getLoveevoPwa");
-        _compact = await _pwaModule.InvokeAsync<bool>("isCompact");
-        _compactReady = true;
+        Filters.StageId = stageId;
+        Filters.NotifyChanged();
     }
 
-    private void OnStateChanged() => _ = InvokeAsync(StateHasChanged);
-
-    public async ValueTask DisposeAsync()
+    private async Task TogglePrivacyAsync()
     {
-        State.Changed -= OnStateChanged;
-        if (_pwaModule is not null) await _pwaModule.DisposeAsync();
+        var preferences = System.Text.Json.JsonSerializer.Deserialize<AppPreferences>(System.Text.Json.JsonSerializer.Serialize(State.Data.Preferences))!;
+        preferences.PrivacyMode = !preferences.PrivacyMode;
+        await State.SavePreferencesAsync(preferences);
     }
 }

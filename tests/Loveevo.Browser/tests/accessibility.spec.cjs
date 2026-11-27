@@ -1,11 +1,17 @@
 const { test, expect } = require('@playwright/test');
 const AxeBuilder = require('@axe-core/playwright').default;
 
-async function openWorkspace(page) {
+async function skipOnboarding(page) {
   await page.goto('/');
-  await expect(page.locator('.lv-onboarding, .lv-workspace')).toBeVisible();
+  await expect(page.locator('.lv-onboarding, .lv-timeline-page')).toBeVisible();
   const skip = page.getByRole('button', { name: '暂时跳过' });
   if (await skip.isVisible()) await skip.click();
+  await expect(page.locator('.lv-timeline-page')).toBeVisible();
+}
+
+async function openWorkspace(page) {
+  await skipOnboarding(page);
+  await page.getByRole('link', { name: '工作台', exact: true }).click();
   await expect(page.locator('.lv-workspace')).toBeVisible();
 }
 
@@ -20,19 +26,18 @@ test('desktop workspace meets automated WCAG 2.2 AA checks', async ({ page }) =>
   expect((await scan(page)).violations).toEqual([]);
 });
 
-test('mobile shell meets automated WCAG 2.2 AA checks', async ({ page }) => {
+test('mobile timeline and workspace meet automated WCAG 2.2 AA checks', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/');
-  await expect(page.locator('.lv-onboarding, .lv-mobile-app')).toBeVisible();
-  const skip = page.getByRole('button', { name: '暂时跳过' });
-  if (await skip.isVisible()) await skip.click();
+  await skipOnboarding(page);
+  expect((await scan(page)).violations).toEqual([]);
+  await page.getByRole('link', { name: '工作台', exact: true }).click();
   await expect(page.locator('.lv-mobile-app')).toBeVisible();
   expect((await scan(page)).violations).toEqual([]);
 });
 
 test('event editor and unsaved-change dialog meet automated WCAG checks', async ({ page }) => {
-  await openWorkspace(page);
-  await page.getByRole('button', { name: '新回忆', exact: true }).first().click();
+  await skipOnboarding(page);
+  await page.getByRole('button', { name: '写下第一条回忆' }).click();
   await expect(page.getByRole('heading', { name: '记录这一刻' })).toBeVisible();
   expect((await scan(page)).violations).toEqual([]);
 

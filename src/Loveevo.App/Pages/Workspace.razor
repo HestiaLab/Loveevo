@@ -1,0 +1,59 @@
+@page "/workspace"
+@using Microsoft.JSInterop
+@inject LoveevoState State
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<PageTitle>Loveevo · 工作台</PageTitle>
+
+@if (!State.Data.Preferences.OnboardingCompleted)
+{
+    <Onboarding OnCompleted="StateHasChanged" />
+}
+else if (!_compactReady)
+{
+    <div class="lv-loading"><div class="lv-loading-mark"><Icon Name="heart" Size="30" /></div><p>正在打开工作台…</p></div>
+}
+else if (_compact)
+{
+    <MobileApp InitialEventId="@GetQueryParameter("event")" InitialNewEvent="@(GetQueryParameter("new") == "1")" />
+}
+else
+{
+    <LoveevoWorkspace />
+}
+
+@code {
+    private bool _compact;
+    private bool _compactReady;
+    private IJSObjectReference? _pwaModule;
+
+    protected override async Task OnInitializedAsync()
+    {
+        State.Changed += OnStateChanged;
+        _pwaModule = await JS.InvokeAsync<IJSObjectReference>("getLoveevoPwa");
+        _compact = await _pwaModule.InvokeAsync<bool>("isCompact");
+        _compactReady = true;
+    }
+
+    private void OnStateChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private string? GetQueryParameter(string name)
+    {
+        var query = Navigation.ToAbsoluteUri(Navigation.Uri).Query.TrimStart('?');
+        foreach (var part in query.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var segments = part.Split('=', 2);
+            if (string.Equals(Uri.UnescapeDataString(segments[0]), name, StringComparison.Ordinal))
+                return segments.Length == 2 ? Uri.UnescapeDataString(segments[1]) : string.Empty;
+        }
+        return null;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        State.Changed -= OnStateChanged;
+        if (_pwaModule is not null) await _pwaModule.DisposeAsync();
+    }
+}

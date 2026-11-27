@@ -70,6 +70,7 @@ jobs:
         run: |
           sed -i 's|<base href="/" />|<base href="/Loveevo/" />|' artifacts/publish/wwwroot/index.html
           sed -i 's|const base = "/";|const base = "/Loveevo/";|' artifacts/publish/wwwroot/service-worker.js
+          cp artifacts/publish/wwwroot/index.html artifacts/publish/wwwroot/404.html
 
       - name: Upload Pages artifact
         if: github.event_name == 'push'

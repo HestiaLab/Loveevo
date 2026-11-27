@@ -11,6 +11,7 @@
 @inject DialogService Dialogs
 @inject EditorDirtyRegistry DirtyRegistry
 @inject IStringLocalizer<LoveevoStrings> Text
+@inject NavigationManager Navigation
 @inject IJSRuntime JS
 
 <div class="lv-workspace @(State.Data.Preferences.PrivacyMode ? "privacy-on" : "")">
@@ -20,9 +21,6 @@
                         TopToolbarContent="@TopToolbar"
                         StatusBarContent="@StatusBar">
         <ContentRoutes>
-            <AtlasContentRoute Kind="loveevo-timeline">
-                <ChildContent Context="content"><Timeline OnNew="() => OpenEditorAsync(null)" OnOpen="OpenDetailAsync" /></ChildContent>
-            </AtlasContentRoute>
             <AtlasContentRoute Kind="loveevo-stages">
                 <ChildContent Context="content"><StagePanel /></ChildContent>
             </AtlasContentRoute>
@@ -30,10 +28,10 @@
                 <ChildContent Context="content"><FilterPanel /></ChildContent>
             </AtlasContentRoute>
             <AtlasContentRoute Kind="loveevo-overview">
-                <ChildContent Context="content"><OverviewPanel /></ChildContent>
+                <ChildContent Context="content"><div class="lv-document-page"><OverviewPanel /></div></ChildContent>
             </AtlasContentRoute>
             <AtlasContentRoute Kind="loveevo-settings">
-                <ChildContent Context="content"><SettingsPanel OnResetLayout="ResetLayoutAsync" OnLayoutRestored="ReloadLayoutAsync" /></ChildContent>
+                <ChildContent Context="content"><div class="lv-document-page"><SettingsPanel OnResetLayout="ResetLayoutAsync" OnLayoutRestored="ReloadLayoutAsync" /></div></ChildContent>
             </AtlasContentRoute>
             <AtlasContentRoute Kind="loveevo-event-detail">
                 <ChildContent Context="content">
@@ -64,6 +62,9 @@
     {
         State.Changed += OnStateChanged;
         await CreateWorkspaceAsync(restore: true);
+        var eventId = GetQueryParameter("event");
+        if (!string.IsNullOrWhiteSpace(eventId)) await OpenDetailAsync(eventId);
+        else if (GetQueryParameter("new") == "1") await OpenEditorAsync(null);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -98,8 +99,12 @@
                     _workspace.Id,
                     new LayoutRestoreOptions(
                         isContentRegistered: reference => LoveevoWorkspaceDefinition.ContentKinds.Contains(reference.Kind, StringComparer.Ordinal),
-                        missingContentPolicy: MissingContentPolicy.PreservePlaceholder,
-                        reservedItemIds: [new DockItemId(LoveevoWorkspaceDefinition.TimelineItemId)]));
+                        missingContentPolicy: MissingContentPolicy.DropUnknownItems,
+                        reservedItemIds:
+                        [
+                            new DockItemId(LoveevoWorkspaceDefinition.OverviewItemId),
+                            new DockItemId(LoveevoWorkspaceDefinition.SettingsItemId)
+                        ]));
                 if (restored.Succeeded && restored.Value is not null)
                     await _workspace.ExecuteAsync(new RestoreWorkspaceOperation(restored.Value));
             }
@@ -151,9 +156,13 @@
 
     private RenderFragment TopToolbar => @<header class="lv-topbar">
         <div class="lv-brand"><span class="lv-brand-mark"><Icon Name="heart" Size="18" /></span><strong>@Text["AppName"]</strong><span>@Text["AppTagline"]</span></div>
+        <nav class="lv-page-nav" aria-label="主导航">
+            <NavLink href="/" Match="NavLinkMatch.All"><Icon Name="heart" Size="15" /> 时间线</NavLink>
+            <NavLink href="/workspace" class="active"><Icon Name="layers" Size="15" /> 工作台</NavLink>
+        </nav>
         <div class="lv-topbar-actions">
-            <button type="button" class="lv-button ghost small" @onclick="OpenTimelineAsync"><Icon Name="heart" Size="15" /> @Text["Timeline"]</button>
-            <button type="button" class="lv-button primary small" @onclick="() => OpenEditorAsync(null)"><Icon Name="plus" Size="15" /> @Text["NewMemory"]</button>
+            <button type="button" class="lv-button ghost small" @onclick="OpenOverviewAsync"><Icon Name="chart" Size="15" /> 关系总览</button>
+            <button type="button" class="lv-button ghost small" @onclick="OpenSettingsAsync"><Icon Name="settings" Size="15" /> 备份与设置</button>
             <button type="button" class="lv-icon-button" title="@(State.Data.Preferences.PrivacyMode ? "退出隐私模式" : "开启隐私模式")" aria-label="@Text["PrivacyToggle"]" @onclick="TogglePrivacyAsync"><Icon Name="@(State.Data.Preferences.PrivacyMode ? "eye-off" : "lock")" Size="18" /></button>
         </div>
     </header>;
@@ -163,27 +172,18 @@
         <span>@State.VisibleEvents.Count 条回忆 · @State.Data.Events.SelectMany(item => item.Photos).Count() 张照片</span>
     </footer>;
 
-    private async Task OpenToolAsync(string itemId)
+    private Task OpenOverviewAsync() => OpenFixedDocumentAsync(LoveevoWorkspaceDefinition.OverviewItemId);
+    private Task OpenSettingsAsync() => OpenFixedDocumentAsync(LoveevoWorkspaceDefinition.SettingsItemId);
+
+    private async Task OpenFixedDocumentAsync(string itemId)
     {
         if (_workspace is null) return;
         var id = new DockItemId(itemId);
+        if (_workspace.TryGetItem(id) is null) return;
         var group = _workspace.Current.Nodes.Values.OfType<GroupNode>().FirstOrDefault(item => item.ItemIds.Contains(id));
-        if (group is null) return;
-        if (group.Visibility != GroupVisibility.Expanded)
+        if (group is not null && group.Visibility != GroupVisibility.Expanded)
             await _workspace.ExecuteAsync(new SetGroupVisibilityOperation(group.Id, GroupVisibility.Expanded));
         await _workspace.ExecuteAsync(new SelectItemOperation(id));
-    }
-
-    private async Task OpenTimelineAsync()
-    {
-        if (_workspace is null) return;
-        var id = new DockItemId(LoveevoWorkspaceDefinition.TimelineItemId);
-        if (_workspace.TryGetItem(id) is null)
-        {
-            var timeline = new DockItem(id, DockItemKind.Document, new ContentReference("loveevo-timeline", "timeline"), DockItemCapabilityPresets.Document, "我们的时间线", "heart", new DocumentState(true, false));
-            await _workspace.ExecuteAsync(new OpenItemOperation(timeline, new LayoutNodeId(LoveevoWorkspaceDefinition.DocumentGroupId), ContentDeduplicationMode.ActivateExisting));
-        }
-        else await _workspace.ExecuteAsync(new SelectItemOperation(id));
     }
 
     private async Task OpenDetailAsync(string eventId)
@@ -230,6 +230,18 @@
     {
         await Task.Yield();
         await CreateWorkspaceAsync(restore: true);
+    }
+
+    private string? GetQueryParameter(string name)
+    {
+        var query = Navigation.ToAbsoluteUri(Navigation.Uri).Query.TrimStart('?');
+        foreach (var part in query.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var segments = part.Split('=', 2);
+            if (string.Equals(Uri.UnescapeDataString(segments[0]), name, StringComparison.Ordinal))
+                return segments.Length == 2 ? Uri.UnescapeDataString(segments[1]) : string.Empty;
+        }
+        return null;
     }
 
     private async Task TogglePrivacyAsync()
